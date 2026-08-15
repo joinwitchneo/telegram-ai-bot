@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.git
+.gitignore
+*.log
+config.env
+history.json
+memories.json
+events_state.json
+reminders.json
+location.json
+media/
+see_outputs/

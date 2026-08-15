@@ -1,0 +1,26 @@
+# 密钥配置
+config.env
+
+# 运行时数据
+bot.log
+stdout.log
+stderr.log
+history.json
+memories.json
+events_state.json
+reminders.json
+location.json
+
+# Python
+__pycache__/
+*.pyc
+
+# 媒体缓存
+media/
+see_outputs/
+
+# 编辑器/系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

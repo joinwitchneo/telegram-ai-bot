@@ -1,0 +1,20 @@
+services:
+  - type: worker
+    name: telegram-ai-chatbot
+    runtime: python
+    plan: free
+    buildCommand: ""
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: PROACTIVE_CHAT_ID
+        sync: false
+      - key: BACKEND
+        value: deepseek
+      - key: DEEPSEEK_MODEL
+        value: deepseek-v4-flash
+      - key: TZ
+        value: Asia/Shanghai
