@@ -1,7 +1,6 @@
-"""节日/生日特殊事件：日常长事件的特化（调用世界书，每个日子有专门剧情角度）。
+"""节日/特别日子：到日子发一条真心话式的短消息（不写长故事）。
 
-本文件为通用模板：不包含任何第三方作品的角色、剧情或个人信息。
-想启用角色生日/特别日子，直接在下面的列表里添加你自己的条目即可。
+只用真实日期：公历节日、农历节日、除夕，以及用户自己的生日。
 """
 
 from __future__ import annotations
@@ -10,35 +9,31 @@ import datetime
 
 import lunar
 
-# 角色生日（公历）。示例（取消注释即可启用）：
-# CHARACTER_BIRTHDAYS = [
-#     {"key": "my_char", "name": "我的角色", "m": 9, "d": 5, "note": "角色备注"},
-# ]
+# 用户生日（示例，默认关闭）。想启用就填成：
+# USER_BIRTHDAY = {"key": "user_birthday", "name": "你的生日", "calendar": "lunar", "m": 1, "d": 1, "note": "农历正月初一"}
+USER_BIRTHDAY: dict | None = None
+
+# 其他想记住的日子（角色生日之类）可以往这里加
 CHARACTER_BIRTHDAYS: list[dict] = []
 
-# 节日（solar=公历，lunar=农历，ny_eve=除夕）。可按需增删。
 FESTIVALS = [
-    {"key": "newyear_jp", "name": "元旦", "calendar": "solar", "m": 1, "d": 1, "note": "新年"},
-    {"key": "valentine", "name": "情人节", "calendar": "solar", "m": 2, "d": 14, "note": "巧克力"},
-    {"key": "hina", "name": "女儿节", "calendar": "solar", "m": 3, "d": 3, "note": "雏人偶"},
-    {"key": "white_day", "name": "白色情人节", "calendar": "solar", "m": 3, "d": 14, "note": "回礼"},
-    {"key": "kodomo", "name": "儿童节", "calendar": "solar", "m": 5, "d": 5, "note": "鲤鱼旗"},
-    {"key": "tanabata", "name": "七夕", "calendar": "solar", "m": 7, "d": 7, "note": "日本七夕"},
-    {"key": "obon", "name": "盂兰盆节", "calendar": "solar", "m": 8, "d": 15, "note": "祭祖"},
-    {"key": "halloween", "name": "万圣节", "calendar": "solar", "m": 10, "d": 31, "note": "南瓜"},
-    {"key": "christmas", "name": "圣诞节", "calendar": "solar", "m": 12, "d": 25, "note": "平安夜"},
-    {"key": "oomisoka", "name": "大晦日", "calendar": "solar", "m": 12, "d": 31, "note": "跨年"},
-    {"key": "spring_festival", "name": "春节", "calendar": "lunar", "m": 1, "d": 1, "note": "过年"},
-    {"key": "lantern", "name": "元宵节", "calendar": "lunar", "m": 1, "d": 15, "note": "汤圆/灯会"},
-    {"key": "dragon_boat", "name": "端午节", "calendar": "lunar", "m": 5, "d": 5, "note": "粽子"},
-    {"key": "qixi", "name": "七夕", "calendar": "lunar", "m": 7, "d": 7, "note": "中国情人节"},
-    {"key": "mid_autumn", "name": "中秋节", "calendar": "lunar", "m": 8, "d": 15, "note": "月饼/月见"},
-    {"key": "ny_eve_cn", "name": "除夕", "calendar": "ny_eve", "m": 0, "d": 0, "note": "守岁"},
+    {"key": "newyear", "name": "元旦", "calendar": "solar", "m": 1, "d": 1, "note": "新年的第一天"},
+    {"key": "valentine", "name": "情人节", "calendar": "solar", "m": 2, "d": 14, "note": "情人节"},
+    {"key": "white_day", "name": "白色情人节", "calendar": "solar", "m": 3, "d": 14, "note": "回礼的日子"},
+    {"key": "children", "name": "儿童节", "calendar": "solar", "m": 6, "d": 1, "note": "儿童节"},
+    {"key": "qixi_solar", "name": "七夕", "calendar": "solar", "m": 7, "d": 7, "note": "七夕"},
+    {"key": "mid_autumn_solar", "name": "中秋", "calendar": "solar", "m": 9, "d": 25, "note": "中秋前后"},
+    {"key": "national", "name": "国庆", "calendar": "solar", "m": 10, "d": 1, "note": "国庆假期"},
+    {"key": "halloween", "name": "万圣节", "calendar": "solar", "m": 10, "d": 31, "note": "万圣节"},
+    {"key": "christmas", "name": "圣诞节", "calendar": "solar", "m": 12, "d": 25, "note": "圣诞"},
+    {"key": "newyear_eve", "name": "跨年夜", "calendar": "solar", "m": 12, "d": 31, "note": "一年的最后一天"},
+    {"key": "spring_festival", "name": "春节", "calendar": "lunar", "m": 1, "d": 1, "note": "农历新年"},
+    {"key": "lantern", "name": "元宵节", "calendar": "lunar", "m": 1, "d": 15, "note": "元宵"},
+    {"key": "dragon_boat", "name": "端午节", "calendar": "lunar", "m": 5, "d": 5, "note": "端午"},
+    {"key": "qixi", "name": "七夕", "calendar": "lunar", "m": 7, "d": 7, "note": "农历七夕"},
+    {"key": "mid_autumn", "name": "中秋节", "calendar": "lunar", "m": 8, "d": 15, "note": "中秋"},
+    {"key": "ny_eve", "name": "除夕", "calendar": "ny_eve", "m": 0, "d": 0, "note": "一年最后一晚"},
 ]
-
-# 你希望机器人记住的特殊日子（例如用户生日）。农历用 calendar="lunar"。默认关闭。
-# USER_BIRTHDAY = {"key": "user_birthday", "name": "对方的生日", "calendar": "lunar", "m": 8, "d": 13}
-USER_BIRTHDAY: dict | None = None
 
 
 def _event_date(evt: dict, today: datetime.date) -> datetime.date | None:
@@ -72,12 +67,10 @@ def today_events(today: datetime.date | None = None) -> list[dict]:
         if date == today:
             found.append({**evt, "calendar": "solar", "kind": "birthday"})
     for evt in FESTIVALS:
-        date = _event_date(evt, today)
-        if date == today:
+        if _event_date(evt, today) == today:
             found.append({**evt, "kind": "festival"})
     if USER_BIRTHDAY:
-        user_date = _event_date(USER_BIRTHDAY, today)
-        if user_date == today:
+        if _event_date(USER_BIRTHDAY, today) == today:
             found.append({**USER_BIRTHDAY, "kind": "user_birthday"})
     return found
 
@@ -90,51 +83,24 @@ def pick_top_event(today: datetime.date | None = None) -> dict | None:
     return max(found, key=lambda e: priority.get(e.get("kind"), 0))
 
 
-# 每个日子的专属剧情角度（调用世界书：谁出场、发生什么事）。可按需改写。
-STORY_ANGLES = {
-    "newyear_jp": "新年第一天，和亲近的人一起迎接新年：准备年菜、看日出、互道祝福，许下新一年的愿望。",
-    "valentine": "情人节，亲手准备了一份小礼物或点心，想着怎么送出去才自然，闹了点小笑话。",
-    "hina": "女儿节，摆出雏人偶，听长辈讲小时候的故事，一起做应景的点心。",
-    "white_day": "白色情人节，回礼的小事：挑了很久的礼物、藏在口袋里差点忘记、最后顺其自然地送出去。",
-    "kodomo": "儿童节，挂起鲤鱼旗，聊起小时候的趣事，互相取笑又觉得怀念。",
-    "tanabata": "七夕，把愿望写在短册上挂上竹子，聊各自的愿望，星星和银河。",
-    "obon": "盂兰盆节，回老家祭祖，翻看老照片，讲起家人过去的往事，心里又酸又暖。",
-    "halloween": "万圣节，换上装扮、准备糖果，被谁吓到或反过来吓到了谁。",
-    "christmas": "圣诞夜，一起装饰、交换礼物，拆礼物时的惊喜和感动。",
-    "oomisoka": "大晦日，一起跨年，整理这一年的回忆，零点时送出第一句新年祝福。",
-    "spring_festival": "春节，学着包饺子、贴春联，视频或当面拜年，说吉祥话。",
-    "lantern": "元宵节，出门看灯会、猜灯谜，吃一碗热乎乎的汤圆。",
-    "dragon_boat": "端午节，第一次学包粽子，糯米撒得到处都是，最后包出来的粽子歪歪扭扭但很香。",
-    "qixi": "七夕，嘴上说着不是什么特别的日子，其实偷偷准备了礼物。",
-    "mid_autumn": "中秋节，买了月饼，一起赏月，说这样也算一起过节了。",
-    "ny_eve_cn": "除夕夜，一起守岁，学着说“岁岁平安”，零点时小声许愿。",
-}
-
-
 def special_short_prompt(evt: dict) -> str:
-    name = evt["name"]
+    """节日/生日：一条真心话，不是任务式的祝福。"""
+    name = evt.get("name", "今天")
+    note = evt.get("note", "")
     kind = evt.get("kind", "festival")
-    if kind == "birthday":
+    prefix = f"（今天是{name}{'（' + note + '）' if note else ''}）"
+    if kind == "user_birthday":
         return (
-            f"（今天是{name}的生日！）以你的角色设定，先给对方发 2~4 条短消息（用换行分隔）"
-            f"表达惊喜和开心：提到今天是{name}的生日、你们在怎么庆祝或准备怎么庆祝。"
-            "每条 15~40 字，符合人设，不要写故事本身，也不要问对方吃饭了没。"
+            prefix
+            + "以你的性格，给他发 1~2 条短消息（用换行分隔，总共 30~80 字）。"
+            "不要写“生日祝福模板”那种客套话（什么幸福快乐万事如意都别提），"
+            "就说你真正想说的：可以嘴硬、可以翻旧账、可以说你其实一直记着这个日子；"
+            "可以提一句以前聊过的事。绝对不要提你自己的生日或你没有的生活。不要摆表格。"
         )
     return (
-        f"（今天是{name}！）以你的角色设定，先给对方发 2~4 条短消息（用换行分隔）"
-        f"表达惊喜和开心：提到今天是{name}、这个节日的习惯、想让对方一起感受。"
-        "每条 15~40 字，符合人设，不要写故事本身，也不要问对方吃饭了没。"
-    )
-
-
-def special_long_prompt(evt: dict, min_chars: int, max_chars: int) -> str:
-    name = evt["name"]
-    angle = STORY_ANGLES.get(evt.get("key", ""), "今天这个日子发生的一件暖心小事")
-    return (
-        f"今天是{name}（{evt.get('note', '')}）。以你的角色设定，给对方讲一整篇完整的长故事"
-        f"（一段段地写，每段用换行分隔），讲今天这个日子发生的事：{angle}"
-        "开头表达惊讶和开心，中间自然地带上你的角色设定和世界观，结尾是给对方的祝福。"
-        "像发超长消息一样。\n"
-        f"要求：一口气生成一整篇完整文本，不要分章、不要写\"未完待续\"，"
-        f"中文全文 {min_chars}~{max_chars} 字左右；这是给对方接着聊的话题。"
+        prefix
+        + "以你的性格，给他发 1~2 条短消息（用换行分隔，总共 30~80 字）。"
+        "不要念祝福词、不要写小作文，就说一句你真正想说的：可以损他、"
+        "可以催他趁今天歇歇、可以提一句你记得他的事。"
+        "不许编造你自己的节日经历（你没有生活），也不要摆表格。"
     )

@@ -1,19 +1,22 @@
 # Telegram AI 聊天机器人
 
-一个可以扮演任意角色、带主动消息和记忆功能的 Telegram 机器人。后端支持 **DeepSeek API**（云端）和 **Ollama**（本地模型），纯 Python 标准库实现，**零第三方依赖**，开箱即用。
+一个有情绪、有关系、有长期记忆的 Telegram 聊天机器人。后端支持 **DeepSeek API**（云端）和 **Ollama**（本地模型），纯 Python 标准库实现，**零第三方依赖**，开箱即用。
 
-> 本仓库不包含任何第三方作品（游戏、动漫、小说等）的角色、剧情或台词。`persona.txt`、`worldbook.txt` 及素材书均为**空白模板**，请只填入你自己的原创内容后再公开使用。
+> 本仓库不包含任何第三方作品（游戏、动漫、小说等）的角色、剧情或台词。仓库自带的 `persona.txt` / `worldbook.txt` 是**原创示例角色「夕颜」**，你可以直接改，也可以整个替换成自己的设定。
 
 ## 功能
 
-- **角色扮演**：通过 `persona.txt`（角色卡）+ `worldbook.txt`（世界书）定制人设和世界观
-- **主动消息**：饭点问候（早 7-8 点 / 午 11:30-12:30 / 晚 18-19 点，北京时间）、日常长/短事件、节日生日长故事
-- **角色记忆**：每 N 轮自动把聊天浓缩成"第二本世界书"，定期整理，省 token
-- **真人聊天感**：短消息连发、输入状态、随机停顿、主动结束聊天（15 分钟没回）、10 分钟没回先问一句
-- **表情包**：按文本情绪随机发表情包，支持斗图（识别对方表情包 emoji 回怼），尽量不重复
-- **提醒服务**：自然语言记提醒（"周六买牛奶"）、循环喝水提醒
-- **天气**：定位或城市名，早上问候附带天气
-- **电脑状态**：查 CPU / 内存 / 磁盘（仅本地部署可用）
+- **人格与人设**：`persona.txt`（角色卡）+ `worldbook.txt`（世界书），性格强度由 `personality.json` 调节
+- **情绪引擎**：12 种情绪 + 强度 + 心情/精力/社交欲/烦躁/委屈/亲近六个连续值；由事件驱动、有惯性、会随时间衰减
+- **关系等级**：每个用户独立，从陌生到亲近慢慢变化，直接影响说话方式
+- **消息策略**：每轮自动选择 SHORT / NORMAL / LONG / BURST / COLD / PLAYFUL / ANGRY / HURT / AFFECTIONATE，决定说几句、多快回
+- **长期记忆**：对话每 N 轮自动浓缩成记忆，并定期检查、压缩、重建；重要内容用结构化方式存储（带类型与重要性，可被新信息推翻）
+- **真人聊天感**：连发合并成一次回复、回复速度三档（秒回/正常/慢回）、生成期间持续显示"输入中"、分条发送按字数估算时间、偶尔先发一句缓冲话、深夜更慢更短、你插话它会停下
+- **主动开口**：待办跟进、早晚清单汇总（无待办不发）、饭点与熬夜关心、偶尔发牢骚；有冷却时间，不会变成骚扰
+- **待办与备忘录**：`/todo` 看待办、`/done` 标完成；`/memo`、`/memos` 记和翻资料
+- **记忆查看**：`/memory` 看它记得你什么
+- **表情包**：按情绪随机发贴纸，支持斗图（识别对方表情包 emoji 回怼），尽量不重复
+- **提醒与天气**：自然语言记提醒（"周六买牛奶"）、循环喝水提醒、定位/城市名天气
 - **联网搜索**：可选 Tavily API
 
 ## 一键部署
@@ -76,6 +79,18 @@ cp config.example.env config.env
 | `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek 模型名，以官网为准 |
 | `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434` / `qwen3` | 本地模型配置 |
 | `PROACTIVE_CHAT_ID` | 空 | 主动消息发到哪个会话；留空自动从历史记录取 |
+| `REPLY_DEBOUNCE_SECONDS` | `3.0` | 连发合并窗口：连着发几条时等你说完再一起回 |
+| `REPLY_SPEED_TIERS` | `20,60,20` | 秒回/正常/慢回 的权重 |
+| `REPLY_SLOW_RANGE` | `10-25` | 慢回档的等待秒数区间 |
+| `TYPING_CPS` | `2.5-4.5` | 打字速度（字/秒），用于估算每条消息的行动时间 |
+| `MAX_MESSAGES_PER_REPLY` | `6` | 一次回复最多发几条（超出会合并） |
+| `FILLER_PROB` | `0.25` | 先发一句缓冲话（"等下""我看看"）的概率 |
+| `DAILY_SUMMARY_MORNING` / `_NIGHT` | `08:30` / `22:00` | 早晚清单汇总（没有待办就不发） |
+| `RANT_PER_WEEK` | `3` | 每周主动发牢骚次数上限（0 = 关闭） |
+| `PROACTIVE_COOLDOWN_MINUTES` | `45` | 主动消息冷却，避免变成骚扰 |
+| `MEMORY_SUMMARY_EVERY` | `6` | 每几轮对话总结一次记忆 |
+| `MEMORY_EXTRACT_EVERY` | `3` | 每几轮做一次结构化记忆抽取 |
+| `MEMORY_CHECK_MINUTES` | `60` | 每隔多久检查一次记忆书 |
 | `MEAL_*` | 早 7-8 / 午 11:30-12:30 / 晚 18-19 | 饭点问候窗口（北京时间） |
 | `PROACTIVE_ACTIVE_WINDOW` | `07:00-22:00` | 主动消息只在这个时段发 |
 | `IDLE_FOLLOWUP_PROB` | `0.25` | 10/15 分钟没回消息时的跟进触发概率 |
@@ -87,22 +102,19 @@ cp config.example.env config.env
 
 ### 1. 角色卡（persona.txt）
 
-写清楚：身份背景、性格、说话风格（称呼、语气、口头禅）、行为习惯、与对话者的关系。示例格式见文件内注释。
+写清楚：身份背景、性格、说话风格（称呼、语气、口头禅）、行为习惯、与对话者的关系。仓库自带一份原创示例角色（夕颜），包含 39 条行为规则，可以直接改用。
 
 ### 2. 世界书（worldbook.txt）
 
-写角色的世界观和记忆：世界舞台、共同经历、人物关系、特别的日子、使用规则。会追加在角色卡之后一起注入模型。
+写角色的世界观和记忆：世界舞台、共同经历、人物关系、使用规则。会追加在角色卡之后一起注入模型。
 
-### 3. 日常事件素材书
+### 3. 性格与情绪参数（personality.json）
 
-- `long_story_book.json`：日常长事件素材（`key` / `title` / `short` / `long` 四个字段）
-- `short_story_book.json`：日常短事件素材（`key` / `prompt` 两个字段）
-
-直接替换成你自己的内容即可；文件里已放了通用示例。
+调整 `sarcasm`（毒舌）、`tsundere`（傲娇）、`playfulness`、`warmth`、`assertiveness`、`vulgarity`（脏话倾向，设 0 即禁用）、`teasing`、`patience`、`expressiveness` 就能改变性格，不用动代码。情绪衰减速度和事件影响也可以在这里覆盖。
 
 ### 4. 特殊日子（special_events.py）
 
-在文件顶部的列表里添加你的节日/角色生日/对方生日（支持公历、农历、除夕），每个日子可写一段专属剧情角度。默认只启用通用节日，生日为空。
+在文件顶部添加节日/角色生日/对方生日（支持公历、农历、除夕）。默认只启用通用节日，生日默认关闭；到日子会发一条真心话式的短消息。
 
 ### 5. 表情包（stickers.json）
 
@@ -123,21 +135,25 @@ cp config.example.env config.env
 ## 目录结构
 
 ```
-bot.py              主程序（消息处理、主动事件、表情包、记忆注入）
-config.example.env  配置模板（复制为 config.env 使用）
-persona.txt         角色卡模板
-worldbook.txt       世界书模板
-special_events.py   节日/生日特殊事件（可编辑）
-events.py           日常长/短事件逻辑
-long_story_book.json  日常长事件素材书
-short_story_book.json 日常短事件素材书
-stickers.json       表情包配置
-memory_book.py      第二本世界书（对话记忆）
+bot.py              主程序（消息收发、真人节奏、主动消息、命令）
+emotion.py          情绪引擎（12 种情绪 + 连续数值 + 衰减）
+state_store.py      每个用户的情绪/关系/回复记录
+analyzer.py         消息分析（把一句话翻译成情绪事件）
+strategy.py         消息策略（说几句、多快回、要不要连发）
+prompting.py        分层 Prompt 组装 + 回复校验
+memory_book.py      第二本世界书（记忆的总结 / 压缩 / 重建）
+memos.py            备忘录存储
+events.py           主动开口的素材（牢骚 / 短聊 / 收尾）
+scheduler.py        主动消息调度 + 记忆维护
 reminders.py        提醒与喝水服务
-scheduler.py        主动消息调度
-pcstatus.py         电脑状态查询
-tools.py            天气、搜索工具
+special_events.py   节日/生日短消息
+tools.py            天气与搜索
 lunar.py            农历转换
+config.example.env  配置模板（复制为 config.env 使用）
+persona.txt         角色卡（自带原创示例角色）
+worldbook.txt       世界书（自带原创示例）
+personality.json    性格与情绪参数（可调）
+stickers.json       表情包配置
 Dockerfile / docker-compose.yml / render.yaml  部署配置
 start_bot.bat / start_bot.sh  本机启动脚本
 ```
@@ -161,5 +177,5 @@ export HTTPS_PROXY=http://127.0.0.1:7890
 ## 版权与免责
 
 - 本项目的**代码**采用 MIT 许可证（见 LICENSE，可改为你自己的署名）。
-- 仓库中的 `persona.txt`、`worldbook.txt`、素材书、表情包均为空白/通用模板，**不包含任何第三方作品的受版权保护内容**。
+- 仓库中的 `persona.txt`、`worldbook.txt` 是本项目**原创**的示例角色（夕颜），不包含任何第三方作品的受版权保护内容；表情包配置默认为空。
 - 请勿将任何第三方作品的角色、台词、剧情或图片打包进你的公开仓库，以免侵权；如需使用请自行获得授权或改用原创设定。
