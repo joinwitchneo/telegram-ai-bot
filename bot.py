@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Telegram bot backed by a local Ollama model.
 
 Zero third-party dependencies: uses only the Python standard library.
@@ -25,6 +25,7 @@ from typing import Callable
 import tools
 import analyzer
 import events
+import persona_check
 import special_events
 import strategy as strategy_mod
 from emotion import EmotionEngine, load_personality
@@ -42,7 +43,17 @@ from reminders import (
 )
 from scheduler import ProactiveScheduler
 
-BASE_DIR = Path(__file__).resolve().parent
+def _resolve_base_dir() -> Path:
+    """配置和数据放在哪个目录。
+
+    源码运行时 = 脚本所在目录；打包成 exe 运行时 = exe 所在目录（这样配置、
+    记忆、日志都留在用户看得见的地方，而不是临时解包目录）。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR = _resolve_base_dir()
 DEFAULT_CONFIG = BASE_DIR / "config.env"
 DEFAULT_HISTORY = BASE_DIR / "history.json"
 TG_API = "https://api.telegram.org/bot{token}/{method}"
@@ -741,6 +752,20 @@ class Bot:
             return None
         return lambda: self._last_user_text_at.get(chat_id, 0.0) > started
 
+    def _sticker_allowed(self, chat_id: int, max_per_hour: int = 4, force: bool = False) -> bool:
+        """贴纸频率上限：一小时最多几张，避免刷屏。force=True 用于他主动要贴纸/斗图。"""
+        if force or self.states is None:
+            return True
+        chat = self.states.get(chat_id)
+        now = time.time()
+        times = [t for t in chat.get("sticker_times", []) if now - float(t) < 3600]
+        if len(times) >= max_per_hour:
+            chat["sticker_times"] = times
+            return False
+        times.append(now)
+        chat["sticker_times"] = times
+        return True
+
     def reply_chatty(self, chat_id: int, text: str, *, fast: bool = False) -> str:
         """短消息连发 + 表情包：模型带【贴纸:分类】暗号就发那张，否则按随机概率按情绪发。
         如果回复只有暗号没有正文，就只发表情包。返回去掉暗号的干净文本（只发表情包时为"[表情包]"）。"""
@@ -757,6 +782,11 @@ class Bot:
                 should_stop=self._interrupt_checker(chat_id),
             )
         if clean or category:
+            if not self._sticker_allowed(
+                chat_id, force=bool(category) or wants_sticker(clean)
+            ):
+                self.last_outgoing_at = time.time()
+                return clean or "[表情包]"
             maybe_send_sticker(
                 self.token,
                 chat_id,
@@ -773,10 +803,10 @@ class Bot:
         return clean
 
     def _system_for(self, chat_id: int) -> str:
-        """系统提示词 + 角色记忆书（第二世界书），保持记忆且省 token。"""
+        """系统提示词 + 角色的记忆书（第二世界书），保持记忆且省 token。"""
         memory_text = self.memory_book.injection(chat_id)
         if memory_text:
-            return f"{self.system_prompt}\n\n## 角色记忆（第二世界书）\n{memory_text}"
+            return f"{self.system_prompt}\n\n## 角色的记忆（第二世界书）\n{memory_text}"
         return self.system_prompt
 
     def _style_instruction(self) -> str:
@@ -813,7 +843,7 @@ class Bot:
         history = self.memory.get(chat_id)
         lines = []
         for item in history[-turns:]:
-            role = "对方" if item.get("role") == "user" else "角色"
+            role = "你" if item.get("role") == "user" else "角色"
             content = (item.get("content") or "").strip()
             if not content or content.startswith("["):
                 continue
@@ -965,6 +995,11 @@ class Bot:
         emotion_text = ""
         behavior: list[str] = []
         relationship_text = ""
+        user_style_text = ""
+        # 用户这一轮的聊天风格（几条消息怎么发的：长度/条数/标点/emoji/连发）
+        current_style = analyzer.analyze_style(text.split("\n"))
+        phase = ""
+        residue_note = ""
         if self.states is not None:
             state = self.states.get(chat_id)
             minutes = self.states.minutes_since_last_message(chat_id) if state.get("last_message_at") else 0.0
@@ -973,14 +1008,80 @@ class Bot:
                 text, self.memory.get(chat_id), int(state.get("cold_streak", 0) or 0)
             )
             self.emotion_engine.apply_events(state["emotion"], analysis["events"])
+            # 很久没说话之后他回来了 → 其实会想他
+            if minutes >= 720 and not analyzer.is_closing(text):
+                self.emotion_engine.apply_event(state["emotion"], "USER_LONG_ABSENCE")
             state["cold_streak"] = int(state.get("cold_streak", 0) or 0) + 1 if analysis["cold"] else 0
+            # 用户回话了 → 上一轮主动问过的话题算聊过了
+            self.states.resolve_asked_topics(chat_id)
+            self.states.tick_residues(chat_id)
             relation = self.states.update_relationship(
                 chat_id, float(analysis.get("relationship_effect", 0.0)), conflict=bool(analysis.get("conflict"))
             )
-            strategy = strategy_mod.choose(state["emotion"], relation, analysis, self.personality)
+            # 依赖度：被关心、被夸、聊得投入 → 慢慢变粘；吵架 → 退一点
+            event_names = {e.get("event") for e in analysis["events"]}
+            if event_names & {"USER_CARE", "USER_PRAISE", "TOPIC_INTERESTING"}:
+                self.states.bump_dependence(chat_id, 0.015)
+            if event_names & {"USER_JOKE", "USER_TEASE"}:
+                self.states.bump_playfulness(chat_id, 0.02)
+            if analysis["conflict"]:
+                self.states.bump_dependence(chat_id, -0.02)
+                self.states.bump_playfulness(chat_id, -0.03)
+
+            # 聊天阶段
+            if analyzer.is_closing(text):
+                phase = "ENDING"
+            elif analysis["conflict"]:
+                phase = "CONFLICT"
+                self.states.set_phase(chat_id, "CONFLICT")
+            elif analyzer.is_deep_talk(text):
+                phase = "DEEP"
+                self.states.set_phase(chat_id, "DEEP")
+            elif minutes >= 30 or self.states.phase(chat_id) in ("IDLE", "COOLDOWN"):
+                phase = "STARTING"
+                self.states.set_phase(chat_id, "STARTING")
+            else:
+                phase = self.states.phase(chat_id)
+                if phase in ("STARTING", "ENDING"):
+                    phase = "CASUAL"
+                    self.states.set_phase(chat_id, "CASUAL")
+
+            long_style = self.states.update_user_style(chat_id, current_style)
+            self.states.reset_proactive_streak(chat_id)  # 用户回话了，主动消息重新计数
+            strategy = strategy_mod.choose(
+                state["emotion"],
+                relation,
+                analysis,
+                self.personality,
+                user_style=current_style,
+                long_term_style=long_style,
+                phase=phase,
+                dependence=self.states.dependence(chat_id),
+                playfulness=self.states.playfulness(chat_id),
+            )
+            # 情绪余波：还没消化的不痛快，可以嘴硬地提一嘴
+            residue = self.states.pending_residue(chat_id)
+            if residue and random.random() < 0.5:
+                residue_note = (
+                    f"你心里还有件事没消：{residue.get('reason')}。"
+                    "可以嘴硬地提一嘴（“我可没忘”“刚才是谁说的”），别说教、别翻旧账超过一句。"
+                )
+                self.states.mark_residue_used(chat_id, str(residue.get("reason", "")))
             emotion_text = self.emotion_engine.describe(state["emotion"])
             behavior = self.emotion_engine.behavior_hints(state["emotion"])
             relationship_text = self.states.relationship_describe(chat_id)
+            user_style_text = analyzer.describe_style(current_style)
+            habit = self.states.style_brief(chat_id)
+            if habit:
+                user_style_text += f"\n（长期观察：{habit}）"
+            dependence = self.states.dependence(chat_id)
+            if dependence >= 0.5:
+                user_style_text += f"\n（你对他的依赖度 {dependence:.2f}：可以更黏一点，但要用傲娇的方式表达。）"
+            # 记录这次的负面事件作为"余波"
+            if event_names & {"USER_INSULT", "USER_INSULT_MILD", "USER_COLD"}:
+                intensity = float(state["emotion"].get("irritation", 0.0)) + float(state["emotion"].get("hurt", 0.0))
+                if intensity >= 0.2:
+                    self.states.add_residue(chat_id, text[:30], "negative", min(1.0, intensity))
             self.states.save()
             logging.info(
                 "[chat %s] events=%s emotion=%s/%s relation=%.2f strategy=%s",
@@ -1020,6 +1121,8 @@ class Bot:
             self._maybe_send_filler(chat_id, text)
             history = self.memory.get(chat_id)
             strategy_text = strategy_mod.describe(strategy)
+            if wants_sticker(text):
+                strategy_text += "\n对方明确要表情包：最后单独一行写【贴纸:分类】。"
             now_local = datetime.datetime.now()
             strategy_text += (
                 f"\n当前真实时间：{now_local.strftime('%Y-%m-%d %H:%M')}"
@@ -1027,12 +1130,17 @@ class Bot:
             )
             if self._is_late_night():
                 strategy_text += "\n现在是深夜：回复更短、更少废话。"
-            if wants_sticker(text):
-                strategy_text += "\n对方明确要表情包：sticker 设为 true，并填 sticker_category。"
+            if phase:
+                strategy_text += f"\n当前聊天阶段：{phase}"
+            if residue_note:
+                strategy_text += "\n" + residue_note
             if self.states is not None:
                 recent = self.states.recent_phrases(chat_id, 6)
                 if recent:
                     strategy_text += "\n最近你已经说过这些话，别重复：" + " / ".join(recent)
+                overused = self.states.overused_tokens(chat_id)
+                if overused:
+                    strategy_text += "\n最近这几句你说得太频繁了，这轮别再用：" + "、".join(overused)
             system_prompt = build_system_prompt(
                 self.system_prompt,
                 self.personality,
@@ -1041,6 +1149,7 @@ class Bot:
                 behavior,
                 self.memory_book.injection(chat_id),
                 strategy_text,
+                user_style_text,
             )
             messages = build_reply_messages(system_prompt, history, text)
             logging.info("[chat %s] asking %s (%s)", chat_id, self.backend, self.model)
@@ -1048,7 +1157,7 @@ class Bot:
                 reply = deepseek_chat(self.model, messages, self.base_url, self.api_key)
             else:
                 reply = ollama_chat(self.model, messages, self.base_url)
-            parsed = validate_reply(parse_model_reply(reply), strategy)
+            parsed = self._parse_reply(reply, strategy)
             # 防重复：开头和最近说过的一样，就重生成一次
             if (
                 self.states is not None
@@ -1067,7 +1176,26 @@ class Bot:
                     retry_text,
                 )
                 reply = self._ask(build_reply_messages(retry_prompt, history, text))
-                parsed = validate_reply(parse_model_reply(reply), strategy)
+                parsed = self._parse_reply(reply, strategy)
+
+            # 人格一致性检查：客服腔 / 口头禅过频 / 表格 / 小作文 → 重写一次
+            recent_tokens = self.states.recent_tokens(chat_id) if self.states is not None else []
+            check = persona_check.check_reply(parsed["messages"], recent_tokens)
+            if check["score"] < 0.65 or check["banned"]:
+                logging.info("[chat %s] persona check failed: %s", chat_id, check)
+                retry_text = strategy_text + "\n" + persona_check.retry_hint(check)
+                retry_prompt = build_system_prompt(
+                    self.system_prompt,
+                    self.personality,
+                    relationship_text or "关系等级 0.05（基本陌生）",
+                    emotion_text or "当前情绪：平静",
+                    behavior,
+                    self.memory_book.injection(chat_id),
+                    retry_text,
+                    user_style_text,
+                )
+                reply = self._ask(build_reply_messages(retry_prompt, history, text))
+                parsed = self._parse_reply(reply, strategy)
 
             # 3) 分条发送：条与条之间按策略停顿时长
             should_stop = self._interrupt_checker(chat_id)
@@ -1087,20 +1215,26 @@ class Bot:
             category = STICKER_CATEGORY_ALIASES.get(str(want_category).strip())
             if parsed.get("sticker") or wants_sticker(text):
                 if strategy.get("allow_sticker", True) or wants_sticker(text):
-                    maybe_send_sticker(
-                        self.token,
-                        chat_id,
-                        clean_reply,
-                        self.stickers,
-                        1.0 if wants_sticker(text) else self.sticker_prob,
-                        force_category=category,
-                        used=self._used_stickers,
-                    )
-                    self._save_event_state()
+                    if self._sticker_allowed(chat_id, force=wants_sticker(text)):
+                        maybe_send_sticker(
+                            self.token,
+                            chat_id,
+                            clean_reply,
+                            self.stickers,
+                            1.0 if wants_sticker(text) else self.sticker_prob,
+                            force_category=category,
+                            used=self._used_stickers,
+                        )
+                        self._save_event_state()
             self.last_outgoing_at = time.time()
             if self.states is not None and sent:
                 self.states.remember_phrase(chat_id, sent[0])
+                self.states.note_tokens(chat_id, persona_check.extract_tokens(clean_reply))
                 self.states.note_outgoing(chat_id)
+                if phase == "ENDING":
+                    # 他说要睡了/要出门 → 收尾之后进入冷却，别马上去打扰
+                    hours = 8.0 if any(word in text for word in ("睡", "晚安")) else 2.0
+                    self.states.set_phase(chat_id, "COOLDOWN", cooldown_hours=hours)
                 self.states.save()
             self.memory.add(chat_id, "user", text)
             self.memory.add(chat_id, "assistant", clean_reply or "[没说话]")
@@ -1124,9 +1258,40 @@ class Bot:
     def _extract_worker(self, chat_id: int, user_text: str, reply_text: str) -> None:
         """后台抽取值得长期记住的内容（带类型和重要性）。"""
         try:
-            self.memory_book.extract_candidates(chat_id, user_text, reply_text)
+            items = self.memory_book.extract_candidates(chat_id, user_text, reply_text)
         except Exception as exc:  # noqa: BLE001
             logging.warning("memory extract worker failed: %s", exc)
+            return
+        # 约定 / 共同经历 / 关系事件 记成"待续话题"，主动聊天时优先问起
+        if items and self.states is not None:
+            topics = [
+                str(item.get("content", ""))
+                for item in items
+                if item.get("type") in ("commitment", "experience", "relation", "fact")
+            ]
+            if topics:
+                self.states.add_followup_topics(chat_id, topics)
+                self.states.save()
+
+    def _parse_reply(self, reply: str, strategy: dict) -> dict:
+        """解析模型输出：JSON 也认，普通文字也认（默认走普通文字，更自然）。"""
+        parsed = parse_model_reply(reply)
+        if parsed.get("fallback"):
+            clean, category = extract_sticker_tag(reply)
+            # 模型按行分条时，一行就是一条消息；只有一行才按标点拆分
+            lines = [line.strip() for line in clean.split("\n") if line.strip()]
+            if len(lines) > 1:
+                chunks = lines
+            else:
+                chunks = split_chatty(clean, max_segments=int(strategy.get("max_messages", 3)))
+            parsed = {
+                "messages": chunks or [clean],
+                "style": "",
+                "sticker": bool(category),
+                "sticker_category": category or "",
+                "fallback": True,
+            }
+        return validate_reply(parsed, strategy)
 
     def _summarize_worker(self, chat_id: int, snapshot: list[dict]) -> None:
         """后台把最近聊天浓缩进第二本世界书，不阻塞聊天。"""
@@ -1170,7 +1335,7 @@ class Bot:
         return any(keyword in text for keyword in self.HELP_KEYWORDS)
 
     def cmd_help_in_character(self, chat_id: int) -> None:
-        """对方问"你能做什么"时，按角色设定做功能总结。"""
+        """对方问"你能做什么"时，用角色的口吻做功能总结。"""
         features = (
             "1. 记待办和提醒：「周六买牛奶」这种没写时间的当待办存着，写了时间的到点叫你。\n"
             "2. 备忘录：地址、账号、要留的资料，说一声我记下来，随时能翻（/memo、/memos）。\n"
@@ -1299,10 +1464,24 @@ class Bot:
                 lines.append(f"{item.get('id')}. {format_due(due)} {item.get('content', '')}（{status}）")
         return lines
 
-    def _proactive_send(self, chat_id: int, prompt: str, *, human: bool = True, note: str = "") -> str:
+    def _proactive_send(
+        self,
+        chat_id: int,
+        prompt: str,
+        *,
+        human: bool = True,
+        note: str = "",
+        respect_cooldown: bool = True,
+    ) -> str:
         """主动消息统一出口：生成 + 发送。human=False 表示提醒类即时发出。"""
         if not self._proactive_ready(chat_id):
             logging.info("proactive skipped (cooldown) for %s", chat_id)
+            return ""
+        if respect_cooldown and self.states is not None and self.states.in_cooldown(chat_id):
+            logging.info("proactive skipped (chat phase cooldown) for %s", chat_id)
+            return ""
+        if self.states is not None and self.states.proactive_streak(chat_id) >= 2:
+            logging.info("proactive skipped (last two got no reply) for %s", chat_id)
             return ""
         now_local = datetime.datetime.now()
         prompt += (
@@ -1330,9 +1509,75 @@ class Bot:
             self.memory_book.add_note(chat_id, note)
         if self.states is not None:
             self.states.note_proactive(chat_id)
+            self.states.bump_proactive_streak(chat_id)
             self.states.save()
         self.memory.save()
         return clean
+
+    def _followup_hint(self, chat_id: int) -> str:
+        """主动开口时优先接上次聊到的事（文档第十一节的话题来源）。"""
+        if self.states is None:
+            return ""
+        topic = self.states.pop_followup_topic(chat_id)
+        if not topic:
+            return ""
+        return f"\n（优先问起这件事，别凭空换话题：{topic}）"
+
+    def _affection_hint(self, chat_id: int) -> str:
+        """依赖度上来之后，主动开口可以带点想他的意思（仍然傲娇）。"""
+        if self.states is None:
+            return ""
+        dependence = self.states.dependence(chat_id)
+        if dependence < 0.5:
+            return ""
+        return (
+            "\n（你其实有点想他，可以承认一点点，但保持傲娇——"
+            "比如“今天怎么这么安静”“你是不是把我忘了”“再陪我一会儿”）"
+        )
+
+    def _thought_hint(self, chat_id: int) -> str:
+        """把一条内部念头变成主动开口的方向。"""
+        if self.states is None:
+            return ""
+        thought = self.states.pop_thought(chat_id)
+        if not thought:
+            return ""
+        return (
+            f"\n（你现在的念头：{thought.get('thought')}"
+            f"（类型：{thought.get('type')}）——顺着这个开口，别生硬地换话题）"
+        )
+
+    def _topic_hint(self, chat_id: int) -> str:
+        """优先用内部念头，其次用没聊完的话题。"""
+        return self._thought_hint(chat_id) or self._followup_hint(chat_id)
+
+    def maybe_generate_thoughts(self, chat_id: int) -> None:
+        """生成 1~2 个"想找他说话的理由"，供主动聊天使用（最多 6 小时一次）。"""
+        if self.states is None:
+            return
+        chat = self.states.get(chat_id)
+        if self.states.thoughts(chat_id):
+            return
+        if (time.time() - float(chat.get("thoughts_generated_at", 0) or 0)) < 6 * 3600:
+            return
+        try:
+            prompt = events.thought_prompt(
+                recent=self._chat_context(chat_id, 8),
+                memory=self.memory_book.injection(chat_id)[:400],
+                todos="\n".join(self.todo_lines(chat_id, limit=5)),
+            )
+            raw = self._ask([{"role": "user", "content": prompt}])
+            thoughts = events.parse_thoughts(raw)
+            for item in thoughts:
+                self.states.add_thought(
+                    chat_id, str(item.get("type", "")), str(item.get("thought", ""))
+                )
+            chat["thoughts_generated_at"] = time.time()
+            self.states.save()
+            if thoughts:
+                logging.info("thoughts generated for %s: %s", chat_id, thoughts)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("thought generation failed: %s", exc)
 
     def _proactive_ready(self, chat_id: int) -> bool:
         """主动消息冷却：刚发过就先安静一会儿，别变成骚扰机器人。"""
@@ -1366,8 +1611,10 @@ class Bot:
                 last_chat_hours=(time.time() - self.last_activity) / 3600,
                 weather=tools.get_weather(self._weather_city()),
             )
-            self._proactive_send(chat_id, prompt, note="角色发了一条牢骚。")
-            logging.info("rant sent to %s", chat_id)
+            prompt += self._topic_hint(chat_id)
+            prompt += self._affection_hint(chat_id)
+            if self._proactive_send(chat_id, prompt, note="角色发了一条牢骚。"):
+                logging.info("rant sent to %s", chat_id)
         except Exception as exc:  # noqa: BLE001
             logging.error("rant failed: %s", exc)
 
@@ -1385,8 +1632,12 @@ class Bot:
                 + "\n".join(lines)
                 + "\n以你的性格发一条短消息催他，40~70 字，绝对不要摆表格，可以损他一句。"
             )
-            self._proactive_send(chat_id, prompt, note="角色催了一下到期/逾期的待办。")
-            logging.info("todo nudge sent to %s", chat_id)
+            if self._proactive_send(
+                chat_id, prompt, note="角色催了一下到期/逾期的待办。", respect_cooldown=False
+            ):
+                logging.info("todo nudge sent to %s", chat_id)
+            else:
+                logging.info("todo nudge skipped for %s", chat_id)
         except Exception as exc:  # noqa: BLE001
             logging.error("todo nudge failed: %s", exc)
 
@@ -1413,11 +1664,14 @@ class Bot:
                     + "\n".join(lines)
                     + "\n以你的性格发一条短消息开个头（40~70 字），不许摆表格。"
                 )
-            self._proactive_send(
+            sent = self._proactive_send(
                 chat_id, prompt, note=f"角色发了一条{'晚间' if kind == 'night' else '早间'}清单汇总。"
             )
-            send_message(self.token, chat_id, "清单：\n" + "\n".join(lines))
-            logging.info("daily summary(%s) sent to %s", kind, chat_id)
+            if sent:
+                send_message(self.token, chat_id, "清单：\n" + "\n".join(lines))
+                logging.info("daily summary(%s) sent to %s", kind, chat_id)
+            else:
+                logging.info("daily summary(%s) skipped for %s", kind, chat_id)
         except Exception as exc:  # noqa: BLE001
             logging.error("daily summary failed: %s", exc)
 
@@ -1431,8 +1685,8 @@ class Bot:
                 f"（现在是 {datetime.datetime.now().strftime('%H:%M')}，对方还没去睡）"
                 "以你的性格发一条短消息赶他去睡觉，40~70 字，毒舌一点但看得出来是关心。"
             )
-            self._proactive_send(chat_id, prompt, note="角色发现他熬夜，念了两句。")
-            logging.info("late-night care sent to %s", chat_id)
+            if self._proactive_send(chat_id, prompt, note="角色发现他熬夜，念了两句。"):
+                logging.info("late-night care sent to %s", chat_id)
         except Exception as exc:  # noqa: BLE001
             logging.error("late-night care failed: %s", exc)
 
@@ -1448,13 +1702,15 @@ class Bot:
         prompt = short_evt["prompt"]
         prompt += "（记住：不要说你生活里发生了什么，你没有生活；可以吐槽、可以关心，但不许编造。）"
         prompt += "（可以自然提一句你记得的他的事——近况、约定、说过的话；想不起来就别硬提。）"
+        prompt += self._topic_hint(chat_id)
+        prompt += self._affection_hint(chat_id)
         if "天气" in prompt:
             weather = tools.get_weather(self._weather_city())
             if weather:
                 prompt += f"\n（对方那边今天的天气：{weather}，可以自然地用上。）"
         try:
-            self._proactive_send(chat_id, prompt, note="角色主动找他说了几句话。")
-            logging.info("short event sent to %s", chat_id)
+            if self._proactive_send(chat_id, prompt, note="角色主动找他说了几句话。"):
+                logging.info("short event sent to %s", chat_id)
         except Exception as exc:  # noqa: BLE001
             logging.error("short event failed: %s", exc)
 
@@ -1506,7 +1762,7 @@ class Bot:
             send_message(
                 self.token,
                 chat_id,
-                "你好，我是你的 AI 伙伴。\n"
+                "我是角色。\n"
                 "要记的事、要问的事直接说。想不起我能干什么就发 /help。",
             )
             return
@@ -1798,16 +2054,18 @@ class Bot:
         if category and random.random() < 0.5:
             # 斗图不一定要同情绪：一半概率故意回一张别的情绪（反制/随性）
             category = None
-        maybe_send_sticker(
-            self.token,
-            chat_id,
-            emoji,
-            self.stickers,
-            1.0,
-            force_category=category,
-            used=self._used_stickers,
-        )
-        self._save_event_state()
+        # 斗图放宽上限，但不至于刷屏
+        if self._sticker_allowed(chat_id, max_per_hour=12):
+            maybe_send_sticker(
+                self.token,
+                chat_id,
+                emoji,
+                self.stickers,
+                1.0,
+                force_category=category,
+                used=self._used_stickers,
+            )
+            self._save_event_state()
         self.memory.add(chat_id, "user", f"[对方发来一张表情包{emoji}]")
         self.memory.add(chat_id, "assistant", "[角色回了一张表情包]")
         self.memory.save()

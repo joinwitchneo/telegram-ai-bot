@@ -1,4 +1,4 @@
-"""Reminder service: store, schedule, and in-character delivery."""
+﻿"""Reminder service: store, schedule, and in-character delivery."""
 
 from __future__ import annotations
 

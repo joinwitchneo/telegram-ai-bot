@@ -1,4 +1,4 @@
-"""主动开口用的素材与提示词。
+﻿"""主动开口用的素材与提示词。
 
 这里的每一条都只依赖**真实信息**（时间、天气、待办、聊天间隔），
 不包含任何"角色自己的生活事件"——她不编造经历，只有脾气。
@@ -113,6 +113,52 @@ def pick_short_event(used: set[str]) -> dict | None:
 
 
 # ── 沉默跟进 ──────────────────────────────────────────────────────
+
+# ── 内部念头（写给主动聊天用的"想找他的理由"）────────────────────
+THOUGHT_PROMPT = """以下是角色和用户最近的聊天片段、她记得的事、以及还没做完的事。
+
+请生成 1~2 个她此刻可能冒出来的**短念头**——不是要发给用户的消息，而是"她想找他说话的理由"。
+每行一个，格式：类型|念头
+类型只能从这五个里选：curiosity（好奇）、unfinished（想起没聊完的事）、playful（想逗他）、missing（有点想他）、complaint（想发牢骚）。
+念头要短，20 字以内，具体一点。
+只能基于下面给出的真实信息，不要编造她的生活、朋友或出门经历。
+只输出念头，不要解释。
+
+【最近的聊天】
+{RECENT}
+
+【她记得的事】
+{MEMORY}
+
+【还没做完的事】
+{TODOS}"""
+
+
+def thought_prompt(recent: str, memory: str, todos: str) -> str:
+    return (
+        THOUGHT_PROMPT.replace("{RECENT}", recent or "（最近没聊什么）")
+        .replace("{MEMORY}", memory or "（暂时没有长期记忆）")
+        .replace("{TODOS}", todos or "（没有未完成的待办）")
+    )
+
+
+def parse_thoughts(raw: str) -> list[dict]:
+    """把模型输出解析成 [{type, thought}]。"""
+    allowed = {"curiosity", "unfinished", "playful", "missing", "complaint"}
+    thoughts: list[dict] = []
+    for line in (raw or "").splitlines():
+        line = line.strip().lstrip("-*0123456789. ").strip()
+        if "|" not in line:
+            continue
+        kind, _, text = line.partition("|")
+        kind = kind.strip().lower()
+        text = text.strip().strip("「」\"'")
+        if kind not in allowed or not text:
+            continue
+        thoughts.append({"type": kind, "thought": text[:60]})
+        if len(thoughts) >= 2:
+            break
+    return thoughts
 ASK_BUSY_SCENARIOS = [
     "对方十分钟没回消息，想问一句他是不是在忙",
     "对方半天没动静，想问一句还活着没",

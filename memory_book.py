@@ -1,4 +1,4 @@
-"""角色的第二本世界书：把聊天内容定期浓缩成"记忆"，并定期检查、整理，控制 token 占用。
+﻿"""角色的第二本世界书：把聊天内容定期浓缩成"记忆"，并定期检查、整理，控制 token 占用。
 
 三层结构：
 1. entries：一条条带时间戳的短期记忆（每隔几轮自动总结出来的）；
@@ -145,6 +145,7 @@ class MemoryBook:
         "没有任何值得记的就输出 []。格式：\n"
         '[{"content": "用户喜欢玩某游戏", "type": "preference", "importance": 0.72, "replaces": ""}]\n'
         "type 只能是：fact（长期事实：名字/职业/住哪/身体状况）、preference（长期喜好与讨厌）、"
+        "habit（长期习惯：作息、饮食、作息不规律这类反复出现的行为）、"
         "commitment（约定或让他记住的事）、experience（重要共同经历）、relation（关系事件）。\n"
         "importance 是 0~1 的重要性，低于 0.25 的不要输出。\n"
         "不要记录：寒暄、表情、一次性的心情、闲聊废话、天气、当前时间。\n"
@@ -152,7 +153,7 @@ class MemoryBook:
         "只输出 JSON，不要解释。\n\n对话：\n{CONVERSATION}"
     )
 
-    def extract_candidates(self, chat_id: int, user_text: str, assistant_text: str) -> int:
+    def extract_candidates(self, chat_id: int, user_text: str, assistant_text: str) -> list:
         """让模型挑出值得长期记住的内容，交给 Python 决定怎么存。"""
         conversation = f"用户：{user_text[:400]}\n角色：{assistant_text[:400]}"
         try:
@@ -161,17 +162,17 @@ class MemoryBook:
             )
         except Exception as exc:  # noqa: BLE001
             logging.warning("memory extraction failed: %s", exc)
-            return 0
+            return []
         start, end = raw.find("["), raw.rfind("]")
         if start == -1 or end <= start:
-            return 0
+            return []
         try:
             items = json.loads(raw[start : end + 1])
         except (ValueError, TypeError):
-            return 0
+            return []
         if not isinstance(items, list):
-            return 0
-        stored = 0
+            return []
+        stored: list = []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -189,7 +190,7 @@ class MemoryBook:
                 importance=importance,
                 confidence=float(item.get("confidence", 0.8) or 0.8),
             )
-            stored += 1
+            stored.append({"content": content, "type": str(item.get("type", "fact"))[:20]})
         if stored:
             logging.info("memory book: chat %s stored %d structured memories", chat_id, stored)
         return stored
@@ -228,7 +229,7 @@ class MemoryBook:
     def _summarize(self, recent: list[dict]) -> str:
         lines = []
         for item in recent:
-            role = "对方" if item.get("role") == "user" else "角色"
+            role = "你" if item.get("role") == "user" else "角色"
             content = (item.get("content") or "").strip()
             if not content or content.startswith("[") or content.startswith("（"):
                 continue

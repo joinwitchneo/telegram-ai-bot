@@ -1,4 +1,4 @@
-"""Stage 2：消息策略选择。
+﻿"""Stage 2：消息策略选择。
 
 决定"这一轮角色准备怎么说"：说几句、多快回、要不要连发、要不要带刺。
 数值全部由 Python 决定，模型只负责把内容写出来。
@@ -49,6 +49,11 @@ def choose(
     personality: dict,
     *,
     energy_bias: float = 0.0,
+    user_style: dict | None = None,
+    long_term_style: dict | None = None,
+    phase: str = "",
+    dependence: float = 0.0,
+    playfulness: float = 0.0,
 ) -> dict:
     """选出本轮的说话策略。"""
     irritation = float(emotion_state.get("irritation", 0.0))
@@ -61,6 +66,15 @@ def choose(
     level = float(relationship.get("level", 0.05))
     intent = analysis.get("user_intent", "casual_chat")
     conflict = bool(analysis.get("conflict"))
+    style = user_style or analysis.get("style") or {}
+    long_style = long_term_style or {}
+
+    # 长期习惯：这个人平时就发很短的消息 → 整体偏向短回复（文档第六节）
+    habitual_short = float(long_style.get("avg_length", 99) or 99) <= 8 and int(
+        long_style.get("samples", 0) or 0
+    ) >= 5
+    this_short = style.get("length_class") == "ultra_short"
+    this_long = style.get("length_class") == "long"
 
     mode = "NORMAL"
     min_messages, max_messages = 1, 3
@@ -83,6 +97,12 @@ def choose(
         delay_between = (1.0, 2.5)
         allow_sticker = False
         notes.append("话少、语气淡，可以“哦”“算了”“随你”，但不要哭闹；等对方哄你再慢慢软下来。")
+    elif (this_short or habitual_short) and not this_long and intent not in ("long_talk", "question"):
+        mode = "SHORT"
+        min_messages, max_messages = 1, 1
+        delay_first = (0.8, 2.5)
+        delay_between = (0.6, 1.5)
+        notes.append("对方发得很短：你也只回一句，几个字到十几个字，别展开。")
     elif energy <= 0.35:
         mode = "SHORT"
         min_messages, max_messages = 1, 1
@@ -97,7 +117,7 @@ def choose(
         mode = "PLAYFUL"
         min_messages, max_messages = 1, 3
         notes.append("可以开玩笑、接梗、损他一句。")
-    elif intent == "long_talk" or intent == "question":
+    elif intent == "long_talk" or intent == "question" or this_long:
         mode = "LONG"
         min_messages, max_messages = 2, 4
         delay_first = (2.0, 5.0)
@@ -109,12 +129,27 @@ def choose(
     if conflict and mode != "ANGRY" and mode != "HURT":
         notes.append("他刚骂了你：可以顶回去，也可以冷处理，别装没事。")
 
+    # 模仿对方的表达习惯（标点 / emoji / 连发），但只学节奏不抄内容（文档第二、七节）
+    if style:
+        if style.get("punctuation_style") == "sparse":
+            notes.append("对方几乎不打标点：你也少打，句末可以不用句号。")
+        if not style.get("emoji_usage"):
+            notes.append("对方不用 emoji：你也别用。")
+        elif int(style.get("emoji_count", 0) or 0) >= 2:
+            notes.append("对方爱用 emoji：你可以跟着用一点，但别堆。")
+        if int(style.get("message_count", 1) or 1) >= 3:
+            notes.append("对方刚才是连着发几条的：你也可以分条回应，不要合并成一大段。")
+        if style.get("question_style"):
+            notes.append("对方在问你问题：先回答，再顺口反问他一句。")
+
     burst = False
     # 只有这些模式才允许"刷屏"；生气/委屈/没精神时不允许被打断成连发
     if mode in ("PLAYFUL", "AFFECTIONATE", "NORMAL", "LONG") and primary in (
         "excited", "happy", "playful", "affectionate", "surprised",
     ):
         probability = _burst_probability(intensity, level, energy)
+        if style.get("burst_style") or float(long_style.get("burst_rate", 0) or 0) >= 0.5:
+            probability *= 1.3  # 对方习惯连发，你也更容易连发
         if random.random() < probability:
             burst = True
             mode = "BURST"
@@ -131,6 +166,44 @@ def choose(
     if random.random() < float(personality.get("tsundere", 0.8)) * 0.35:
         notes.append("这轮可以带一点傲娇：嘴上否认，行为上关心。")
 
+    # 聊天阶段（文档第十四节）：只做最有用的几个
+    if phase == "ENDING":
+        mode = "SHORT"
+        min_messages, max_messages = 1, 1
+        delay_first = (0.8, 2.5)
+        delay_between = (0.6, 1.2)
+        allow_sticker = True
+        notes.append("他在收尾：回一句就够。不追问、不留钩子、不说“我等你”。")
+    elif phase == "STARTING" and mode in ("NORMAL", "PLAYFUL", "AFFECTIONATE"):
+        max_messages = min(max_messages, 2)
+        notes.append("刚开场：别一上来倒一堆话，也别太自来熟。")
+    elif phase == "DEEP":
+        mode = "LONG"
+        min_messages, max_messages = 2, 4
+        delay_first = (2.0, 5.0)
+        notes.append("他在认真讲自己的事：认真听、可以追问细节，但别给建议、别说教、别总结。")
+    elif phase == "CONFLICT" and mode not in ("ANGRY", "HURT"):
+        max_messages = min(max_messages, 2)
+        notes.append("你们刚闹过：语气还没完全回去，别立刻热络。")
+
+    # 依赖度上来之后允许粘人（但仍是傲娇式表达）
+    if dependence >= 0.6 and affection >= 0.45 and mood > 0.0 and random.random() < 0.4:
+        notes.append("你其实想让他多陪一会儿：可以要求他留下（“再聊五分钟”“别急着走”），但嘴上要否认自己在粘人。")
+
+    if playfulness >= 0.6:
+        notes.append("你们平时互相整活：这轮可以更皮一点，玩笑可以开大一点，但别伤人。")
+
+    # 跑题（Topic Drift）：概率随关系上升，但认真聊/收尾/闹情绪时不许跑
+    topic_drift = False
+    if phase not in ("DEEP", "ENDING") and mode not in ("ANGRY", "HURT", "SHORT"):
+        drift_probability = 0.15 + 0.10 * max(0.0, min(1.0, (level - 0.3) / 0.5))
+        if random.random() < drift_probability * (0.8 + 0.4 * energy):
+            topic_drift = True
+            notes.append(
+                "可以顺口扯到一个相关的小话题（比如突然想起另一件事、或反问一句别的），"
+                "但要先把他的话接住，别丢下他在说的事、别硬转。"
+            )
+
     return {
         "mode": mode,
         "min_messages": min_messages,
@@ -140,6 +213,8 @@ def choose(
         "allow_sticker": allow_sticker,
         "burst": burst,
         "notes": notes,
+        "phase": phase,
+        "topic_drift": topic_drift,
         "vulgarity_hint": _vulgarity_hint(irritation, personality),
     }
 

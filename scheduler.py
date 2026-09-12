@@ -1,4 +1,4 @@
-"""主动消息调度（线程实现）。
+﻿"""主动消息调度（线程实现）。
 
 四类主动开口：
 1. 待办跟进：有当天到期/逾期的待办才催；
@@ -275,6 +275,13 @@ class ProactiveScheduler(threading.Thread):
             return
         self._last_memory_check = time.time()
         threading.Thread(target=self.bot.maintain_memory, daemon=True).start()
+        # 顺手准备"想找他说话的理由"，供主动聊天使用
+        if self.bot.proactive_chat_id:
+            threading.Thread(
+                target=self.bot.maybe_generate_thoughts,
+                args=(self.bot.proactive_chat_id,),
+                daemon=True,
+            ).start()
 
     # ── 每日汇总 ────────────────────────────────────────────────────
     def _maybe_daily_summary(self, day: str, now: datetime.datetime) -> None:

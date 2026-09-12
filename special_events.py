@@ -9,7 +9,7 @@ import datetime
 
 import lunar
 
-# 用户生日（示例，默认关闭）。想启用就填成：
+# 用户生日（默认关闭）。想启用就填成下面这样，支持公历（solar）和农历（lunar）：
 # USER_BIRTHDAY = {"key": "user_birthday", "name": "你的生日", "calendar": "lunar", "m": 1, "d": 1, "note": "农历正月初一"}
 USER_BIRTHDAY: dict | None = None
 

@@ -13,6 +13,13 @@ location.json
 states.json
 memos.json
 
+# 打包产物
+*.spec
+build/
+dist/
+*.exe
+launcher-run.log
+
 # Python
 __pycache__/
 *.pyc

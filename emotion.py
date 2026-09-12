@@ -1,4 +1,4 @@
-"""情绪引擎：角色的内部情绪状态。
+﻿"""情绪引擎：角色的内部情绪状态。
 
 设计原则（对应 V2 架构文档）：
 - 情绪不是单个变量：主情绪 + 强度 + 次要情绪 + 若干连续数值；
@@ -61,6 +61,8 @@ EVENT_EFFECTS: dict[str, dict[str, float]] = {
     "BOT_MISTAKE": {"mood": -0.05, "hurt": 0.03, "e:hurt": 0.08},
     "BOT_CORRECTED": {"mood": -0.02},
     "LONG_SILENCE": {"social_need": -0.05, "e:tired": 0.05},
+    # 很久没说话之后他回来了：其实会想他
+    "USER_LONG_ABSENCE": {"social_need": 0.20, "mood": -0.04, "e:affectionate": 0.15},
 }
 
 # 每分钟衰减率（1.0 = 不衰减）
