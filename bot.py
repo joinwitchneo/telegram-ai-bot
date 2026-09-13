@@ -89,6 +89,97 @@ def _resolve_base_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def build_fingerprint() -> dict:
+    """这次运行的到底是哪份代码——启动第一件事就把它钉下来。"""
+    import hashlib
+
+    source = Path(__file__).resolve()
+    digest = "?"
+    mtime = "?"
+    try:
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        mtime = datetime.datetime.fromtimestamp(source.stat().st_mtime).isoformat(timespec="seconds")
+    except OSError:
+        pass
+    return {"path": str(source), "sha256": digest, "mtime": mtime,
+            "pid": os.getpid(), "started_at": datetime.datetime.now().isoformat(timespec="seconds")}
+
+
+def log_build(*, handlers: bool = False) -> dict:
+    info = build_fingerprint()
+    logging.info("[build] path=%s", info["path"])
+    logging.info("[build] sha256=%s", info["sha256"])
+    logging.info("[build] mtime=%s", info["mtime"])
+    logging.info("[build] pid=%d", info["pid"])
+    logging.info("[build] started_at=%s", info["started_at"])
+    if handlers:
+        logging.info(
+            "[build] handlers: /vision=%s /cap=%s /tools=%s",
+            "/vision" in Bot.COMMANDS, "/cap" in Bot.COMMANDS, "/tools" in Bot.COMMANDS,
+        )
+    return info
+
+
+def _pid_alive(pid: int) -> bool:
+    """判断进程是否还活着（不用 psutil，也不做危险操作）。"""
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    try:
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+class SingleInstance:
+    """锁文件 + PID 存活检查：不允许多开，也把"另一个实例还在跑"说清楚。"""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.held = False
+
+    def acquire(self) -> tuple[bool, dict]:
+        existing: dict = {}
+        if self.path.is_file():
+            try:
+                existing = json.loads(self.path.read_text(encoding="utf-8")) or {}
+            except (OSError, json.JSONDecodeError):
+                existing = {}
+            other = int(existing.get("pid", 0) or 0)
+            if other and other != os.getpid() and _pid_alive(other):
+                return False, existing
+        info = build_fingerprint()
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
+        except OSError as exc:
+            logging.warning("[instance] 写锁文件失败：%s", exc)
+        self.held = True
+        return True, info
+
+    def release(self) -> None:
+        if not self.held:
+            return
+        try:
+            if self.path.is_file():
+                data = json.loads(self.path.read_text(encoding="utf-8") or "{}")
+                if int(data.get("pid", 0) or 0) == os.getpid():
+                    self.path.unlink(missing_ok=True)
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+
+
 BASE_DIR = _resolve_base_dir()
 DATA_DIR = BASE_DIR / "data"
 
@@ -161,6 +252,12 @@ def api_request(
 
 class Bot:
     """Phase 1：Telegram 层 + 命令 + 对话管线。"""
+
+    COMMANDS = (
+        "/remind", "/reminders", "/todo", "/done", "/delremind", "/memo", "/memos", "/delmemo",
+        "/water", "/search", "/autostart", "/clear", "/status", "/proactive", "/主动",
+        "/tools", "/工具", "/cap", "/能力", "/vision", "/视觉", "/start", "/help",
+    )
 
     HELP_TEXT = (
         "这个版本是 V2 的基础架构（Phase 1）。\n"
@@ -1255,6 +1352,22 @@ class Bot:
             lines.append(f"9) 进入 Context 的文本：{(endtoend.text or endtoend.error)[:200]}")
         except Exception as exc:  # noqa: BLE001
             lines.append(f"8) 路由器异常：{exc}")
+        # 7. 硬校验：最终发给 LLM 的 messages 里到底有没有视觉结果（只拼上下文，不调模型）
+        try:
+            instruction = self.conversation.perception_instruction(
+                "image", PerceptionRouter.describe_for_context(endtoend) if endtoend else "",
+                ok=bool(endtoend and endtoend.ok),
+            )
+            built = self.context_manager.build(
+                user_text="", history=[], state=None, memory_blocks=[],
+                mode="CASUAL", extra_system=instruction,
+            )
+            joined = "\n".join(str(m.get("content", "")) for m in built.messages)
+            injected = (endtoend.text[:12] in joined) if (endtoend and endtoend.ok) else ("没有获得任何视觉" in joined)
+            lines.append(f"9b) 最终 LLM messages 注入校验：{injected}")
+            lines.append(f"9c) messages 内容片段：{joined.split('【本地感知结果】')[-1][:120]}")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"9b) messages 注入校验异常：{exc}")
         lines.append("10) 能力层状态：" + "；".join(
             f"{name}={'可用' if item['available'] else '不可用'}"
             for name, item in sorted(self.caps.report()["capabilities"].items())
@@ -1602,6 +1715,8 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(BASE_DIR / "bot.log", encoding="utf-8")],
     )
+    # 第一时间留下代码指纹（早于任何可能失败的步骤）
+    log_build()
     config = Config(Path(args.config))
     proxy = config.get("HTTPS_PROXY")
     if proxy:
@@ -1611,25 +1726,27 @@ def main() -> int:
         logging.error("缺少 TELEGRAM_BOT_TOKEN（config.env 或环境变量）")
         return 1
     bot = Bot(config)
-    # 启动指纹：以后任何一次"到底跑的是哪份代码"都能从日志直接确认
+    log_build(handlers=True)
+    # 唯一实例保护：绝不允许悄悄跑起第二个进程
+    lock = SingleInstance(DATA_DIR / "bot.lock")
+    ok, existing = lock.acquire()
+    if not ok:
+        logging.error(
+            "[instance] 已经有一个夕颜在运行：pid=%s started_at=%s path=%s",
+            existing.get("pid"), existing.get("started_at"), existing.get("path"),
+        )
+        logging.error("[instance] 本次启动被拒绝（不会开第二个实例）。要重启请先停掉旧进程，或用 启动夕颜.cmd。")
+        print(f"[instance] 已有实例在运行 pid={existing.get('pid')}，本次启动退出。")
+        return 2
+    # 启动健康检查：只查路径在不在，不强行拉起感知服务
     try:
-        import hashlib
-
-        source = Path(__file__).resolve()
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()[:12]
-        logging.info(
-            "[build] path=%s mtime=%s sha256=%s pid=%d",
-            source,
-            datetime.datetime.fromtimestamp(source.stat().st_mtime).isoformat(timespec="seconds"),
-            digest,
-            os.getpid(),
-        )
-        logging.info(
-            "[build] handlers: /vision=%s /cap=%s /tools=%s",
-            hasattr(bot, "cmd_vision"), hasattr(bot, "cmd_caps"), hasattr(bot, "cmd_tools"),
-        )
+        report = bot.registry.cost_report()
+        logging.info("[startup] 工具可用性：共 %d 个，缺少依赖的：%s",
+                     report["total"], "、".join(report["unavailable"]) or "无")
+        logging.info("[startup] 本地视觉：%s（按需启动，不预热）",
+                     "已就绪" if bot.vision.health_check() else "待首次使用时启动")
     except Exception as exc:  # noqa: BLE001
-        logging.warning("[build] 指纹记录失败：%s", exc)
+        logging.warning("[startup] 健康检查失败：%s", exc)
     for tier, model in bot.client.models.items():
         logging.info("模型档位 %s = %s", tier, model or "（未配置）")
     if bot.model_report.get("fallback"):
@@ -1641,7 +1758,8 @@ def main() -> int:
     reminder_thread.start()
     bot.wait_for_network(timeout=float(config.get_int("STARTUP_NETWORK_WAIT_SECONDS", 180)))
     # 后台预热本地视觉服务：开机后第一张图不用等 Ollama 冷启动
-    if config.get_bool("VISION_ENABLED", True) and config.get_bool("PERCEPTION_WARMUP", True):
+    # 默认不预热：只有显式打开 PERCEPTION_WARMUP=true 才会在开机时拉起本地视觉
+    if config.get_bool("VISION_ENABLED", True) and config.get_bool("PERCEPTION_WARMUP", False):
         threading.Thread(
             target=lambda: (logging.info("预热本地视觉：%s", bot.vision.ensure_running() and "就绪" or "不可用"),
                             logging.info("视觉模型：%s", bot.vision.resolve_model() or "（没有可用视觉模型）")),
@@ -1660,6 +1778,10 @@ def main() -> int:
         logging.info("stopped by user")
     finally:
         bot.proactive.stop()
+        try:
+            lock.release()
+        except Exception:  # noqa: BLE001
+            pass
     return 0
 
 

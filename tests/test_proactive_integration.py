@@ -198,6 +198,12 @@ class ProactivePipelineTest(unittest.TestCase):
         record, _ = pipe.memory.create(
             type="fact", content="用户下周三要考试", importance=0.8, protected=True
         )
+        # 测试用的是固定时间点 NOW，而记忆按真实时间创建；若真实时间已晚于 NOW，
+        # 记忆会变成"来自未来"并被"太新"规则跳过（那是正确行为）。这里把创建时间回拨，
+        # 保证测试与运行时刻无关。
+        for item in pipe.memory.data:
+            if item.get("id") == record["id"]:
+                item["created_at"] = (NOW - datetime.timedelta(hours=5)).isoformat()
         result = pipe.scheduler.tick(now=NOW)
         self.assertTrue(result["sent"])
         contents = [message["content"] for message in pipe.conversation.llm.calls[0]["messages"]]

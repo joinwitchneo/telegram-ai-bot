@@ -26,6 +26,29 @@
 
 ## 快速开始
 
+### 启动脚本说明（只有一个命令行入口）
+
+| 文件 | 作用 |
+| --- | --- |
+| `启动夕颜.cmd` | **唯一推荐入口**：校验 Python 与 `config.env` → 按需拉起本地 Ollama → 停掉本目录旧实例 → 启动 `bot.py` → 打印 `[build]` 指纹自证 → 失败时保留窗口并显示原因 |
+| `启动器.bat` | 图形界面入口（`gui.py`）：适合填 token、看日志；机器人日志同样写进 `bot.log` |
+| `build_exe.bat` | 打包成 exe（开发用） |
+
+两个入口的检查逻辑一致：找不到 Python、缺 `config.env`、启动失败都会**明确报错并保留窗口**，不会静默退出、也不会吞掉 traceback。
+
+启动后日志里必须出现这几行——这就是"跑的是最新代码"的证据：
+
+```
+[build] path=…\bot.py
+[build] sha256=…
+[build] mtime=…
+[build] pid=…
+[build] started_at=…
+[build] handlers: /vision=True /cap=True /tools=True
+```
+
+同一时间只允许一个实例：若已有实例在跑，新进程会打印对方 PID 并拒绝启动（不会偷偷开第二个）。
+
 ```bash
 git clone https://github.com/joinwitchneo/telegram-ai-bot.git
 cd telegram-ai-bot

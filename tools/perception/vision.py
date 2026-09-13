@@ -80,19 +80,26 @@ class OllamaVision:
         return names
 
     def resolve_model(self) -> str:
-        # 只缓存"找到了"的结果：Ollama 后启动时还能补上来
-        if self._model_cache:
-            return self._model_cache
         models = self.list_models()
+        # 只缓存"找到了"的结果；缓存失效（模型被删/换）或为空时都重新探测
+        if self._model_cache:
+            if self._model_cache in models:
+                return self._model_cache
+            logging.info("[vision] 缓存的模型已不在列表里（%s），重新探测", self._model_cache)
+            self._model_cache = None
         if self.model and any(item.startswith(self.model) for item in models):
             self._model_cache = next(item for item in models if item.startswith(self.model))
             return self._model_cache
+        if self.model:
+            logging.warning("[vision] 配置的 VISION_MODEL=%s 不在本机模型列表里", self.model)
         for item in models:
             normalized = normalize_model_name(item)
             if any(hint in normalized for hint in VISION_HINTS):
                 self._model_cache = item
                 return item
-        self._model_cache = ""
+        # 故意不缓存失败结果：Ollama 后来起来了必须能重新发现
+        if models:
+            logging.warning("[vision] 本机模型里没有视觉模型：%s", ", ".join(models)[:120])
         return ""
 
     def ensure_running(self) -> bool:
@@ -116,7 +123,7 @@ class OllamaVision:
             )
             logging.info("尝试拉起本地视觉服务：%s serve", self.exe_path)
         except Exception as exc:  # noqa: BLE001
-            logging.warning("拉起 Ollama 失败：%s", exc)
+            logging.warning("[vision] ensure_running failed: %s: %s", type(exc).__name__, exc)
             return False
         deadline = time.time() + self.start_timeout
         while time.time() < deadline:
@@ -125,6 +132,7 @@ class OllamaVision:
                 return True
             time.sleep(2.0)
         logging.warning("等了 %.0f 秒，本地视觉服务仍未就绪", self.start_timeout)
+        logging.warning("[vision] ensure_running failed: 服务未在 %.0f 秒内就绪", self.start_timeout)
         return False
 
     def available(self) -> bool:
