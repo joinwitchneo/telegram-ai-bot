@@ -1,9 +1,0 @@
-services:
-  telegram-bot:
-    build: .
-    container_name: telegram-ai-bot
-    restart: unless-stopped
-    env_file:
-      - config.env
-    environment:
-      - TZ=Asia/Shanghai

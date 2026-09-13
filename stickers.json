@@ -1,4 +1,360 @@
 {
-  "enabled": false,
-  "categories": {}
+ "enabled": true,
+ "send_probability": 0.35,
+ "categories": {
+  "gag": [
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkLcTP2Hmd3_NDt0HRxjeQWUAALfGQACeiGJV0TrNfjLtZiCPQQ",
+    "emoji": "💵",
+    "pack": "HamidashiCreative",
+    "index": 0,
+    "label": "HamidashiCreative#00"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkKYhx9dXLDwyByCfjwBCIyMAALRFAACFmOIV87_EI8V_scXPQQ",
+    "emoji": "🎵",
+    "pack": "HamidashiCreative",
+    "index": 5,
+    "label": "HamidashiCreative#05"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkL8zNU41u386dxOkaDxTL7bAAJHGwACv6ZQVFIT0iC6Pt9jPQQ",
+    "emoji": "👀",
+    "pack": "HamidashiCreative",
+    "index": 13,
+    "label": "HamidashiCreative#13"
+   }
+  ],
+  "happy": [
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkIqThKTRbIy2SrAJRT0xJUEAAJjFQAC3v2JVwnS4zRu62vCPQQ",
+    "emoji": "☺",
+    "pack": "HamidashiCreative",
+    "index": 1,
+    "label": "HamidashiCreative#01"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkIF_L5LF6QLBsIbivHYtMmrAAI7IgACjVuIVwzfcMKUrFA7PQQ",
+    "emoji": "😊",
+    "pack": "HamidashiCreative",
+    "index": 3,
+    "label": "HamidashiCreative#03"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkJZKKULCkAj1nFwA5LBLP_-AALrFgACUJCQV8Ue5xEXgCipPQQ",
+    "emoji": "☺",
+    "pack": "HamidashiCreative",
+    "index": 7,
+    "label": "HamidashiCreative#07"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkKs6QuSO5kIcZ_WKNUEW3f3AALCFgACgsCIV23StoK7Vv2RPQQ",
+    "emoji": "😏",
+    "pack": "HamidashiCreative",
+    "index": 12,
+    "label": "HamidashiCreative#12"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkIqnJDXERsf9t7msYClFkN9AALIGQACmBmJV610DxDVVuHTPQQ",
+    "emoji": "😉",
+    "pack": "HamidashiCreative",
+    "index": 15,
+    "label": "HamidashiCreative#15"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkKbLLqdkcm_ei33BOJSEXeCAALzFgAC5DmJV5fJX7C2B6_2PQQ",
+    "emoji": "😋",
+    "pack": "HamidashiCreative",
+    "index": 17,
+    "label": "HamidashiCreative#17"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slg8lsS0iEcVx88gViDbU9msAALiAQAC8CcpR7aoAcz9EtfXPQQ",
+    "emoji": "😃",
+    "pack": "IZUMIHIYORI",
+    "index": 9,
+    "label": "IZUMIHIYORI#09"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SlhvOJkk6keaJVYbELnA6SZXAAKLAQACb7gpR2XK6rN8RiTKPQQ",
+    "emoji": "😎",
+    "pack": "IZUMIHIYORI",
+    "index": 10,
+    "label": "IZUMIHIYORI#10"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SlhXgGqHx27xLhst-OvNTNimAAJvAQAC8DcoR_MTsSV-JSTHPQQ",
+    "emoji": "😜",
+    "pack": "IZUMIHIYORI",
+    "index": 12,
+    "label": "IZUMIHIYORI#12"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SlhSmYkldx0cZN0DVbjGiZxXAALBAQACC5MpRwIoyyG5GWx7PQQ",
+    "emoji": "😋",
+    "pack": "IZUMIHIYORI",
+    "index": 14,
+    "label": "IZUMIHIYORI#14"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slhgk_-cI8yYQWaiRFpj_1B1AAJAAgACbucgR4sXZfGR84fpPQQ",
+    "emoji": "😝",
+    "pack": "IZUMIHIYORI",
+    "index": 22,
+    "label": "IZUMIHIYORI#22"
+   }
+  ],
+  "surprised": [
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkISvaoUQgnvUGF14Gu6B_XAAAKmFwACL8mJV_GDl6sBDpziPQQ",
+    "emoji": "😧",
+    "pack": "HamidashiCreative",
+    "index": 2,
+    "label": "HamidashiCreative#02"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkLGNNDFtW5SGXfXpGptBLqXAAL9GQAC1yiJV_Ik4Pt4NoguPQQ",
+    "emoji": "😧",
+    "pack": "HamidashiCreative",
+    "index": 23,
+    "label": "HamidashiCreative#23"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slir-NSNYKKdE4uczoDC4WQWAAJKAgACDgopR1efODeJTAsgPQQ",
+    "emoji": "😱",
+    "pack": "IZUMIHIYORI",
+    "index": 0,
+    "label": "IZUMIHIYORI#00"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slj4Gf7syUGMyNZH6kFCtwh9AAMCAALFESBHypDM_tgrYxI9BA",
+    "emoji": "😯",
+    "pack": "IZUMIHIYORI",
+    "index": 8,
+    "label": "IZUMIHIYORI#08"
+   }
+  ],
+  "sad": [
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkI3wBN58O84Y2BuyxyFx3e1AAKeGQACkraIVz1eBN7e3_kOPQQ",
+    "emoji": "😣",
+    "pack": "HamidashiCreative",
+    "index": 4,
+    "label": "HamidashiCreative#04"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkK9RvBsi2vC0kmoaE0l_Hj9AAKKGgACMgOIV3Fv5jsfMTi_PQQ",
+    "emoji": "😢",
+    "pack": "HamidashiCreative",
+    "index": 10,
+    "label": "HamidashiCreative#10"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkLrQ7qm9p5mqI0glLvBlygJAAKAFgACpImJVxEalxf4NQL1PQQ",
+    "emoji": "😭",
+    "pack": "HamidashiCreative",
+    "index": 11,
+    "label": "HamidashiCreative#11"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkLVk1CidN7Mq_-d4TXm8igEAALIEwACsAIBVPa2He7r4wzGPQQ",
+    "emoji": "😭",
+    "pack": "HamidashiCreative",
+    "index": 19,
+    "label": "HamidashiCreative#19"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SljHbRDGzrMqdc6g83UDP2EoAAIWAgACMvwpR3pMuzLBYTeOPQQ",
+    "emoji": "😢",
+    "pack": "IZUMIHIYORI",
+    "index": 1,
+    "label": "IZUMIHIYORI#01"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SljSTb2ej6d9QaO6WAABG8IYdwACaAEAAunqKEegR1mDpBuCUz0E",
+    "emoji": "😢",
+    "pack": "IZUMIHIYORI",
+    "index": 2,
+    "label": "IZUMIHIYORI#02"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SlhkgQYtr6OC8CiVC2Tda7dfAAJ2AQACii8pR0LBsozB46JqPQQ",
+    "emoji": "😭",
+    "pack": "IZUMIHIYORI",
+    "index": 5,
+    "label": "IZUMIHIYORI#05"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SljbNjYLl_o-GG3fFT-NzTd7AAKwAQACI8UoRyMpAAGnUmREqj0E",
+    "emoji": "😭",
+    "pack": "IZUMIHIYORI",
+    "index": 11,
+    "label": "IZUMIHIYORI#11"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SliWjD3ube8_OCIP3oTv79M2AAL9AgACyOYoR-TrK7DPQz6tPQQ",
+    "emoji": "😫",
+    "pack": "IZUMIHIYORI",
+    "index": 15,
+    "label": "IZUMIHIYORI#15"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SlgJksSMf7toqH5arHAmWVF6AALXAQACeRwoRxgVMate3QKYPQQ",
+    "emoji": "🙁",
+    "pack": "IZUMIHIYORI",
+    "index": 23,
+    "label": "IZUMIHIYORI#23"
+   }
+  ],
+  "pout": [
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkLcngeJFoTBLBbRVDWVzSOiAAIeHAACTECJVx6O5MrqWGMOPQQ",
+    "emoji": "😠",
+    "pack": "HamidashiCreative",
+    "index": 6,
+    "label": "HamidashiCreative#06"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkLlbLiRaQz2InyJKtvM1A2MAAJMHQACU46IV2axJzjHdkf6PQQ",
+    "emoji": "😡",
+    "pack": "HamidashiCreative",
+    "index": 14,
+    "label": "HamidashiCreative#14"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkJECuIxumhUkblhxXujX9MQAAJhFQACly-JV93W67d5csiePQQ",
+    "emoji": "😡",
+    "pack": "HamidashiCreative",
+    "index": 21,
+    "label": "HamidashiCreative#21"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SliVXDiURGI6hiqwVAABz1xD7wACeAEAAlxBKEcHaW6il9jAhj0E",
+    "emoji": "😡",
+    "pack": "IZUMIHIYORI",
+    "index": 19,
+    "label": "IZUMIHIYORI#19"
+   }
+  ],
+  "shy": [
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkJTHJB6HDa2tqdqcG3ecWOcAAKALAAC-KeIV04ILisfJDnVPQQ",
+    "emoji": "🥵",
+    "pack": "HamidashiCreative",
+    "index": 8,
+    "label": "HamidashiCreative#08"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkJOoYKmhbSWWE42CmHOGNy3AAIaFgAC_m-JV39jvOLL0qK2PQQ",
+    "emoji": "😖",
+    "pack": "HamidashiCreative",
+    "index": 16,
+    "label": "HamidashiCreative#16"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slj66L80r_mLnAex93w02SaPAAKpAQAC-xwoR4cDeTfEZaSoPQQ",
+    "emoji": "😖",
+    "pack": "IZUMIHIYORI",
+    "index": 3,
+    "label": "IZUMIHIYORI#03"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SliuRMnkhOq5KJvSgv3z5UNCAAKSAQACD_gpRxELrRTpO9wOPQQ",
+    "emoji": "😰",
+    "pack": "IZUMIHIYORI",
+    "index": 4,
+    "label": "IZUMIHIYORI#04"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slh9DiR_ittMfc8EdDxAubUqAAI0AgACzKUoR81vGy5iVrX4PQQ",
+    "emoji": "😳",
+    "pack": "IZUMIHIYORI",
+    "index": 7,
+    "label": "IZUMIHIYORI#07"
+   }
+  ],
+  "lovey": [
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkJLYxF-wqh9QMzTN-vTD4rBAAKaGgACjxSJV764YJZP4FxVPQQ",
+    "emoji": "😍",
+    "pack": "HamidashiCreative",
+    "index": 9,
+    "label": "HamidashiCreative#09"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkJ5yuHT3WYFsfzxbKjnGglkAAK_FgACkupQVXBh29ehJxG7PQQ",
+    "emoji": "😍",
+    "pack": "HamidashiCreative",
+    "index": 18,
+    "label": "HamidashiCreative#18"
+   },
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkI921KKAAHwHmJLYIN-PWiEGgACxBUAAtjokFe05X9jpEcJ1T0E",
+    "emoji": "😍",
+    "pack": "HamidashiCreative",
+    "index": 20,
+    "label": "HamidashiCreative#20"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slj5SImaH1Ul1YPP8lC-RA6QAALlAgAC4OMoR65DDwPyac5kPQQ",
+    "emoji": "😘",
+    "pack": "IZUMIHIYORI",
+    "index": 16,
+    "label": "IZUMIHIYORI#16"
+   }
+  ],
+  "sleepy": [
+   {
+    "file_id": "CAACAgUAAxUAAWp0SkI77SLzfMW-0K5D3-5cYczAAAJZGgACfoaJV0D_3e5fzOcLPQQ",
+    "emoji": "😪",
+    "pack": "HamidashiCreative",
+    "index": 22,
+    "label": "HamidashiCreative#22"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slj-vvtKARBeaqlT-e-rQgahAALsAQACwbIoR9-RFKeJTS0fPQQ",
+    "emoji": "😴",
+    "pack": "IZUMIHIYORI",
+    "index": 17,
+    "label": "IZUMIHIYORI#17"
+   }
+  ],
+  "flat": [
+   {
+    "file_id": "CAACAgEAAxUAAWp0SljtelWdpTGRYLSFhsNy_yzfAAIIAgAC9cEpR8pL3Y4mIi1fPQQ",
+    "emoji": "😕",
+    "pack": "IZUMIHIYORI",
+    "index": 6,
+    "label": "IZUMIHIYORI#06"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SlieQ3cn844JM9DSZuso1Cv6AAIwAgACriMpR_DZ1_G33EoMPQQ",
+    "emoji": "🤔",
+    "pack": "IZUMIHIYORI",
+    "index": 13,
+    "label": "IZUMIHIYORI#13"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SliGE8F1bMQSk8S4ki40hv8oAALDAwAChmEoR8FOap1c2JQ_PQQ",
+    "emoji": "😐",
+    "pack": "IZUMIHIYORI",
+    "index": 18,
+    "label": "IZUMIHIYORI#18"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0Slj_xDJBIiQuJdWWySiurdIoAAJnAQACGYYoR6oe6a6l8kqZPQQ",
+    "emoji": "😑",
+    "pack": "IZUMIHIYORI",
+    "index": 20,
+    "label": "IZUMIHIYORI#20"
+   },
+   {
+    "file_id": "CAACAgEAAxUAAWp0SljcG9ALUYvyBwl1aE-QyaDMAAKLAgACFGwoR8wSMvV407L2PQQ",
+    "emoji": "😶",
+    "pack": "IZUMIHIYORI",
+    "index": 21,
+    "label": "IZUMIHIYORI#21"
+   }
+  ]
+ }
 }

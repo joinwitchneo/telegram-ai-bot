@@ -1,4 +1,4 @@
-﻿"""角色 · 图形启动器
+"""夕颜 · 图形启动器
 
 一个不依赖第三方库的小窗口：填配置 → 测试连接 → 一键启动/停止机器人。
 打包成 exe 后可以自己当"运行器"用（--run-bot），所以用户机器上不需要装 Python。
@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-APP_TITLE = "角色 · 启动器"
+APP_TITLE = "夕颜 · 启动器"
 FIELDS = [
     # (key, 标签, 是否密码, 说明)
     ("TELEGRAM_BOT_TOKEN", "Telegram Bot Token", True, "找 @BotFather 发 /newbot 获取"),
@@ -119,7 +119,7 @@ class Launcher:
     # ── 界面 ────────────────────────────────────────────────────────
     def _build(self) -> None:
         pad = {"padx": 10, "pady": 6}
-        title = ttk.Label(self.root, text="角色 · 启动器", font=("Microsoft YaHei UI", 16, "bold"))
+        title = ttk.Label(self.root, text="夕颜 · 启动器", font=("Microsoft YaHei UI", 16, "bold"))
         title.pack(anchor="w", **pad)
         ttk.Label(
             self.root,
@@ -311,7 +311,7 @@ class Launcher:
             result = subprocess.run(
                 [
                     "powershell", "-NoProfile", "-Command",
-                    "Get-CimInstance Win32_Process -Filter \"Name='python.exe' or Name='角色启动器.exe'\" | "
+                    "Get-CimInstance Win32_Process -Filter \"Name='python.exe' or Name='夕颜启动器.exe'\" | "
                     "Where-Object { $_.CommandLine -like '*bot.py*' -or $_.CommandLine -like '*--run-bot*' } | "
                     "ForEach-Object { Stop-Process -Id $_.ProcessId -Force; $_.ProcessId }",
                 ],
@@ -343,7 +343,7 @@ class Launcher:
                 [
                     "powershell", "-NoProfile", "-Command",
                     "Get-CimInstance Win32_Process -Filter \"Name='python.exe' or Name='pythonw.exe' or "
-                    "Name='角色启动器.exe'\" | "
+                    "Name='夕颜启动器.exe'\" | "
                     "Where-Object { $_.CommandLine -like '*bot.py*' -or $_.CommandLine -like '*--run-bot*' } | "
                     "Select-Object -ExpandProperty ProcessId",
                 ],
