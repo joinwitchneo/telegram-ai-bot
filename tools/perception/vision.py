@@ -146,6 +146,15 @@ class OllamaVision:
                      self._model_cache)
         return resolved
 
+    def health_check(self) -> bool:
+        """被动健康检查：只问"现在能不能用"，绝不拉起服务（启动时用这个）。"""
+        if not self.enabled:
+            return False
+        models = self.list_models()
+        if not models:
+            return False
+        return bool(self.resolve_model())
+
     # ── 推理 ────────────────────────────────────────────────────────
     def describe(self, image_path: str | Path, *, prompt: str = "") -> ToolResult:
         if not self.enabled:
