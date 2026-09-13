@@ -1,0 +1,5 @@
+V2 架构（Phase 1-8 + 能力层）
+build: 2026-09-13
+commit-base: a10dcec
+模块: persona / memory / emotion / relationship / self_model / proactive / capabilities / response-planner / message-splitter
+说明: 本仓库为当前在用的新架构版本；此前 "V2 升级：情绪引擎…" 属于旧项目历史提交。
