@@ -19,6 +19,16 @@ def signals(heat=0.5, shared=0.2, intimacy=0.2, fatigue=0.3) -> dict:
     }
 
 
+def default_now() -> datetime.datetime:
+    """测试基准"现在"。
+
+    故意跟着真实时钟走，不写死某个日期：记忆/角色生活的 created_at 都是真实时间戳，
+    写死基准会让"刚创建的记忆"在当天某个时刻之后变成"未来时间"，从而必现失败
+    （V2 里就存在这个问题：20:00 之后跑必红）。+1 小时保证"刚创建"的东西落在过去。
+    """
+    return datetime.datetime.now().replace(microsecond=0) + datetime.timedelta(hours=1)
+
+
 class EngineTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -35,7 +45,7 @@ class EngineTest(unittest.TestCase):
         return self.engine.build_candidates(
             signals=kwargs.pop("signals", signals()),
             last_user_at=last_user_at,
-            now=now or datetime.datetime(2026, 9, 13, 20, 0, 0),
+            now=now or default_now(),
             **kwargs,
         )
 

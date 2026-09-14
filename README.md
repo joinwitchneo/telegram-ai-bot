@@ -1,8 +1,13 @@
-# Telegram AI Bot（夕颜 V2）
+# Telegram AI Bot（夕颜 V3）
 
 一个**跑在自己电脑上**的 Telegram 角色聊天机器人：不是客服、不是问答工具，而是一个有稳定人格、长期记忆、情绪与关系状态、自我理解、会挑时候主动找你说话，并且**尽量把能力留在本地**的角色系统。
 
 主聊天模型可接任意 OpenAI 兼容接口（默认 DeepSeek）；图片理解、语音识别、OCR、天气、网页阅读全部走**本地程序或免费 HTTP**，不需要额外的付费 AI 接口。
+
+> 本仓库当前是 **V3**：在 V2 基础上加了「数字生命内核（Digital Life Core）」——
+> 念头会随时间衰减/激活、检查点会便宜地反复评估、只有值得想的时候才调用模型、
+> 醒来不等于说话、行动能力通过接口接进来（Telegram 只是第一个环境实现）。
+> V2 的代码仍完整保留在本仓库的历史提交里，并可随时回滚。
 
 ---
 
@@ -19,6 +24,26 @@
 | `core/` | LLM Policy、Context（L0–L4）、Response Planner、Validator、Token 预算 |
 | `style/` | 消息拆分与真人节奏（中文标点规则、连发、停顿） |
 | `capabilities/` `tools/` | 能力层：视觉/OCR/语音/视频/天气/搜索/提醒，统一"有或没有" |
+| `v3/` | **V3 数字生命内核**：Thought 动力学、检查点/阈值、认知器官接口、行动接口、自主唤醒、反馈 |
+
+### V3 的自主闭环（Phase 6）
+
+```
+聊天/时间/内部状态 → 观测 → 念头(可衰减/激活) → 检查点(纯 Python，0 token)
+  → 达到阈值才调用认知器官(LLM) → 结构化 Proposal → Python 决策
+  → 行动校验(预算/冷却/档位) → 行动接口 → 环境适配器 → 结果 → 反馈 → 连续性 → 下一次唤醒
+```
+
+三条铁律：
+
+1. **LLM 只是提议者**：它的输出必须过校验器，最后由 Python 决定做什么（可以什么都不做）。
+2. **检查点便宜、LLM 昂贵**：检查点每轮只做算术，只有达到认知阈值才可能调用一次模型。
+3. **行动接口化**：核心不认识 Telegram，只产生 ActionRequest；Telegram 只是 `v3/environments/` 的第一个实现。
+
+默认档位 `observe`：**会思考、会记录，但绝不主动给你发消息**（`dry_run` 走模拟发送，`live` 才允许真正发送）。
+
+观察命令：`/wakestatus` `/wake` `/whyawake` `/wakereasons` `/thoughts` `/thought <id>`
+`/checkpoints` `/triggers` `/actions` `/why [action_id]` `/interests` `/journal` `/cycle` `/mode`
 
 设计原则只有一句：**程序负责状态和规则，模型负责理解与表达。**
 
@@ -105,6 +130,26 @@ Windows 用户可以直接双击 `启动器.bat`（图形启动器，可填 toke
 /cap             能力层现状（哪些能力可用）
 /vision          视觉链路体检（逐级输出真实结果）
 /proactive       主动消息状态（/proactive now 试发一次）
+/version         确认现在跑的是 V3 还是 V2（含代码指纹）
+/autostart on|off 开机自启（指向 V3 启动器）
+
+# ── V3 自主生命内核（默认 observe：只思考，不主动发消息）──
+/wakestatus      档位 / 队列 / 今日 cycle·LLM·Action / Phase 6 状态
+/wake            现在会不会自己醒来（候选 + 唤醒分 + 卡在哪）
+/whyawake        最近一次唤醒：为什么醒、想到了什么、决定了什么
+/wakereasons     唤醒原因统计（醒来 ≠ 发消息）
+/waketest unfinished|curiosity|intention|relationship [now]
+/thoughts        最近的念头（含 id、触发分、激活度）
+/thought <id>    单个念头的完整生命周期
+/checkpoints     最近检查点（为什么这一刻没有调用 LLM）
+/triggers        当前触发候选（candidate / eligible / blocked）
+/actions         最近的行动（observe 档显示「本来会做」）
+/why [action_id] 可解释链：为什么这么做
+/interests       兴趣状态
+/journal [n]     内在日志
+/cycle           手动跑一轮（同样受预算/阈值/校验约束）
+/mode observe|dry_run|live   切换运行时档位（active 是 live 的别名）
+/v3help          V3 命令说明
 ```
 
 直接发消息就是聊天；图片、语音、视频、文件、链接都可以直接发。
@@ -127,6 +172,9 @@ python -m unittest discover -s tests -t .
 ```
 
 真实模型/真实本机能力的验证脚本在 `tests/verify_*.py`（例如 `verify_phase7e.py` 会真的调用本地视觉与语音，可用 `XIYAN_FIXTURES` 指定素材目录）。
+
+V3 相关的设计与边界写在 `docs/v3/V3_BASE.md`（基线、差异、铁律、回滚）与
+`docs/v3/SYNC.md`（与 V2 的关系、怎么搬运修复）。
 
 ---
 

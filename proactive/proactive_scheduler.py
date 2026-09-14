@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from core.atomic_io import atomic_write_text
+
 import datetime
 import json
 import logging
@@ -64,7 +66,7 @@ class ProactiveState:
             snapshot = json.dumps(self.data, ensure_ascii=False, indent=1)
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(snapshot, encoding="utf-8")
+            atomic_write_text(self.path, snapshot, encoding="utf-8")
         except OSError as exc:
             logging.warning("写入主动状态失败：%s", exc)
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -20,8 +19,7 @@ sys.path.insert(0, str(BASE))
 
 import bot as bot_mod  # noqa: E402
 
-# 测试素材目录：可用环境变量覆盖，默认放在仓库同级 fixtures/
-FIXTURES = Path(os.environ.get("XIYAN_FIXTURES", Path(__file__).resolve().parent.parent / "fixtures"))
+FIXTURES = Path(r"C:\Users\Lenovo\tools-bin\fixtures")
 
 
 def main() -> int:

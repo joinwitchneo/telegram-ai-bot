@@ -25,6 +25,12 @@ EVENT_NAMES = (
     "ConversationEnded",
     "ProactiveTriggered",
     "UserReturned",
+    # V3：只读通知（发布方在 V3 内；V2 侧只多发布一个 BotResponseSent）
+    "BotResponseSent",
+    "v3:thought_created",
+    "v3:interest_updated",
+    "v3:experience_committed",
+    "v3:cycle_completed",
 )
 
 _counter = itertools.count(1)

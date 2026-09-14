@@ -290,6 +290,19 @@ class Conversation:
         self.remember(chat_id, "user", text)
         if sent:
             self.remember(chat_id, "assistant", "\n".join(sent))
+        # V3 观测用：只把"已经存在的数据"发出去（实际发送文本 + 已有计划信息），不调模型
+        if self.bus is not None:
+            try:
+                self.bus.publish(
+                    "BotResponseSent",
+                    chat_id=chat_id,
+                    excerpt="\n".join(sent)[:240],
+                    response_mode=built.mode,
+                    message_count=len(sent),
+                    plan=(plan.to_plan_dict() if plan is not None else {}),
+                )
+            except Exception as exc:  # noqa: BLE001 - 观测失败不能影响聊天
+                logging.debug("[v3] 发布 BotResponseSent 失败：%s", exc)
         self._reply_streak[chat_id] = self._reply_streak.get(chat_id, 0) + 1
         fallback_used = bool(validated is not None and validated.fallback_used)
         if self.response_stats is not None and plan is not None:

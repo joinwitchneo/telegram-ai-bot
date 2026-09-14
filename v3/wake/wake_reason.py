@@ -1,0 +1,36 @@
+"""唤醒原因（Phase 6 §四）。"""
+
+from __future__ import annotations
+
+USER_RETURNED = "USER_RETURNED"
+UNFINISHED_THOUGHT = "UNFINISHED_THOUGHT"
+CURIOSITY = "CURIOSITY"
+INTENTION_DUE = "INTENTION_DUE"
+RELATIONSHIP_EVENT = "RELATIONSHIP_EVENT"
+INTEREST_DECAY_CHECK = "INTEREST_DECAY_CHECK"
+TIME_RECHECK = "TIME_RECHECK"
+CONTINUITY = "CONTINUITY"
+MANUAL = "MANUAL"
+WAKE_TEST = "WAKE_TEST"
+
+REASONS = (
+    USER_RETURNED, UNFINISHED_THOUGHT, CURIOSITY, INTENTION_DUE, RELATIONSHIP_EVENT,
+    INTEREST_DECAY_CHECK, TIME_RECHECK, CONTINUITY, MANUAL, WAKE_TEST,
+)
+
+# 这些原因由"内部状态"产生（而不是用户消息或人工命令）
+AUTONOMOUS_REASONS = (
+    UNFINISHED_THOUGHT, CURIOSITY, INTENTION_DUE, RELATIONSHIP_EVENT, CONTINUITY,
+)
+
+# 这些原因**永远不允许**促成对外消息：它们只意味着"醒来看看"
+NEVER_MESSAGE_REASONS = (TIME_RECHECK, INTEREST_DECAY_CHECK)
+
+
+def normalize_reason(reason: str) -> str:
+    value = str(reason or "").strip().upper()
+    return value if value in REASONS else TIME_RECHECK
+
+
+def can_lead_to_message(reason: str) -> bool:
+    return normalize_reason(reason) not in NEVER_MESSAGE_REASONS

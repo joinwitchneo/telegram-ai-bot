@@ -42,6 +42,12 @@ from style.message_renderer import MessageRenderer, RenderLimits
 from style.user_style import UserStyle
 from self_model.events import SelfModelBridge
 from self_model.store import load_self_model
+from sticker.engine import StickerEngine, StickerIntent
+from sticker.history import StickerHistory
+from sticker.index import StickerIndex
+from sticker.models import StickerRecord
+from sticker.sender import StickerSender
+from sticker.store import StickerStore
 from capabilities.manager import CapabilityManager
 from capabilities.services import (
     OcrCapability,
@@ -82,6 +88,24 @@ from tools.reminders import (
 TG_API = "https://api.telegram.org/bot{token}/{method}"
 MAX_REPLY_LEN = 4096
 
+# 开机自启：本项目的唯一入口是启动器；旧条目在打开时自动清掉
+AUTOSTART_NAME = "xiyan_v3_bot.vbs"
+LEGACY_AUTOSTART_NAMES = ("xiyan_v2_bot.vbs", "see_telegram_bot.vbs", "see_telegram_bot.vbs.bak")
+
+
+def _version_label() -> str:
+    try:
+        for line in (Path(__file__).resolve().parent / "VERSION").read_text(
+                encoding="utf-8").splitlines():
+            if line.strip():
+                return line.strip()
+    except OSError:
+        pass
+    return "V3"
+
+
+VERSION_LABEL = _version_label()
+
 
 def _resolve_base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -105,6 +129,17 @@ def build_fingerprint() -> dict:
             "pid": os.getpid(), "started_at": datetime.datetime.now().isoformat(timespec="seconds")}
 
 
+# /remind 的时间兜底提示用：句子里像是想表达时间，但纯 Python 没解析出来
+TIME_HINT_WORDS = (
+    "点", "时", "分", "号", "周", "明天", "后天", "大后天",
+    "早上", "上午", "中午", "下午", "晚上", "夜里", "凌晨",
+)
+
+
+def _looks_like_time(text: str) -> bool:
+    return any(word in (text or "") for word in TIME_HINT_WORDS)
+
+
 def log_build(*, handlers: bool = False) -> dict:
     info = build_fingerprint()
     logging.info("[build] path=%s", info["path"])
@@ -120,8 +155,45 @@ def log_build(*, handlers: bool = False) -> dict:
     return info
 
 
+def _resolve_proxy(config: "Config") -> str:
+    """决定用哪个代理：配置 > 环境变量 > 本地常见端口探测 > 直连。"""
+    explicit = config.get("HTTPS_PROXY", "").strip()
+    if explicit:
+        return explicit
+    for key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+        value = (os.environ.get(key) or "").strip()
+        if value:
+            return value
+    for port in LOCAL_PROXY_PORTS:
+        if _port_open("127.0.0.1", port):
+            return f"http://127.0.0.1:{port}"
+    return ""
+
+
+def _port_open(host: str, port: int, timeout: float = 0.4) -> bool:
+    """本机某个端口是否有人监听（用来判断"本地代理在不在"）。"""
+    import socket
+
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+LOCAL_PROXY_PORTS = (7890, 7891, 7897, 10809, 10808, 1080)
+
+__all__ = ["_pid_alive"]
+
+
 def _pid_alive(pid: int) -> bool:
-    """判断进程是否还活着（不用 psutil，也不做危险操作）。"""
+    """判断进程是否还活着（不用 psutil，也不做危险操作）。
+
+    Windows 上不能只看 OpenProcess 能不能成功：被强杀、pid 还没被回收的进程
+    仍然能打开句柄（句柄被别处持有），于是"已经死了的旧进程"会被误判成还活着，
+    新进程就永远起不来。这里额外查一次退出码，只有 STILL_ACTIVE 才算活着。
+    注意：Windows 上 os.kill(pid, 0) 会真的终止进程，所以那条路只在非 Windows 走。
+    """
     if pid <= 0:
         return False
     if os.name != "nt":
@@ -133,11 +205,17 @@ def _pid_alive(pid: int) -> bool:
     try:
         import ctypes
 
+        still_active = 259
         handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
         if not handle:
             return False
-        ctypes.windll.kernel32.CloseHandle(handle)
-        return True
+        try:
+            code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
     except Exception:  # noqa: BLE001
         return False
 
@@ -232,10 +310,12 @@ def api_request(
     if data:
         headers["Content-Type"] = "application/json; charset=utf-8"
     request = urllib.request.Request(url, data=data, headers=headers)
+    # 每次都重新构建 opener：这样运行时切换代理（见 poll 的自动切换）才能真正生效
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler())
     last_error = "unknown error"
     for attempt in range(1, retries + 1):
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with opener.open(request, timeout=timeout) as response:
                 raw = response.read().decode("utf-8", errors="replace")
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
@@ -256,12 +336,14 @@ class Bot:
     COMMANDS = (
         "/remind", "/reminders", "/todo", "/done", "/delremind", "/memo", "/memos", "/delmemo",
         "/water", "/search", "/autostart", "/clear", "/status", "/proactive", "/主动",
-        "/tools", "/工具", "/cap", "/能力", "/vision", "/视觉", "/start", "/help",
+        "/tools", "/工具", "/cap", "/能力", "/vision", "/视觉", "/sticker", "/贴纸",
+        "/version", "/版本", "/start", "/help",
     )
 
     HELP_TEXT = (
-        "这个版本是 V2 的基础架构（Phase 1）。\n"
+        "这个进程跑的是夕颜 V3（V2 基线 + 自主生命模块）。\n"
         "命令：\n"
+        "· /version —— 确认现在聊的是 V3 还是 V2（含代码指纹）\n"
         "· /todo 看待办 ｜ /remind 内容 记一件 ｜ /done 编号 完成 ｜ /delremind 编号 删除\n"
         "· /memo 内容 ｜ /memos ｜ /memo 编号 ｜ /delmemo 编号 —— 备忘录\n"
         "· /water on|off —— 循环喝水提醒\n"
@@ -271,6 +353,7 @@ class Bot:
         "· /tools —— 看工具层（/tools cache 缓存 ｜ /tools cost 成本）\n"
         "· /vision —— 视觉链路体检（图片识别每一级的真实结果）\n"
         "· /cap —— 看能力层现状（哪些能力可用）\n"
+        "· /v3help —— V3 自主生命系统观察命令（/wakestatus /thoughts /interests /journal /why /cycle /mode）\n"
         "· /clear 清空本会话上下文 ｜ /status 后端状态 ｜ /help 帮助\n"
         "直接发消息就是聊天。"
         "图片、语音、视频、文件、链接都可以直接发。"
@@ -279,7 +362,11 @@ class Bot:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.started_at = datetime.datetime.now().isoformat(timespec="seconds")
+        self.build_info: dict = {}          # main() 启动后填 [build] 指纹，/version 用它自证
         self.token = config.get("TELEGRAM_BOT_TOKEN")
+        # Telegram API 入口：默认官方；如果你的网络对 api.telegram.org 不通，
+        # 可以填自建反代/可用镜像（例如 https://your-worker.workers.dev），其余代码不用改
+        self.api_base = (config.get("TELEGRAM_API_BASE", "") or "https://api.telegram.org").rstrip("/")
         self.city = config.get("CITY", "香港")
         self.search_api_key = config.get("SEARCH_API_KEY")
         self.search_api_url = config.get("SEARCH_API_URL", "https://api.tavily.com/search")
@@ -607,6 +694,31 @@ class Bot:
         )
         self.media_dir = DATA_DIR / config.get("MEDIA_TMP_DIR", "tmp")
 
+        # ── V3（自主生命系统 MVP）：默认关闭；只订阅事件 + 提供观察命令，不发消息 ──
+        self.v3_service = None
+        self._v3_last_user = ""
+        self._v3_emotion_delta: dict = {}
+        self._v3_relationship_delta: dict = {}
+        if config.get_bool("V3_ENABLED", False):
+            try:
+                from v3.service import V3Service
+
+                self.v3_service = V3Service(
+                    config, base_dir=BASE_DIR, client=self.client, budget_global=self.budget,
+                    # 把"怎么发消息"注入环境层；Core 自己不认识 Telegram
+                    environment_sender=self.send_message,
+                    chat_id=config.get_int("V3_CHAT_ID", 0)
+                    or config.get_int("PROACTIVE_CHAT_ID", 0) or None,
+                )
+                self.bus.subscribe("UserMessageReceived", self._v3_on_user_message)
+                self.bus.subscribe("BotResponseSent", self._v3_on_bot_response)
+                self.bus.subscribe("EmotionChanged", self._v3_on_state_changed)
+                self.bus.subscribe("RelationshipChanged", self._v3_on_state_changed)
+                logging.info("[v3] 已启用：mode=%s data=%s",
+                             self.v3_service.runtime.mode(), self.v3_service.runtime.data_dir)
+            except Exception as exc:  # noqa: BLE001 - V3 初始化失败不能影响聊天
+                logging.warning("[v3] 初始化失败（V2 功能不受影响）：%s", exc)
+
         # ── Phase 8：Self Model（她怎么理解"我自己"）──
         self.self_model = load_self_model(
             DATA_DIR / config.get("SELF_MODEL_FILE", "self_model.json"),
@@ -619,6 +731,27 @@ class Bot:
             cooldown_minutes=config.get_float("SELF_MODEL_THOUGHT_COOLDOWN_MINUTES", 30.0),
         )
         self._self_model_context_enabled = config.get_bool("SELF_MODEL_IN_CONTEXT", True)
+
+        # ── Sticker S1：表达层基础设施（收录 0 token / 0 Vision，默认不自动发）──
+        sticker_dir = DATA_DIR / "stickers"
+        self.sticker_store = StickerStore(
+            sticker_dir / "index.json", sticker_dir / "preferences.json"
+        )
+        self.sticker_history = StickerHistory(sticker_dir / "history.json")
+        self.sticker_index = StickerIndex(self.sticker_store)
+        self.sticker_index.build()
+        self.sticker_engine = StickerEngine(
+            store=self.sticker_store,
+            index=self.sticker_index,
+            history=self.sticker_history,
+            dry_run=config.get_bool("STICKER_DRY_RUN", True),
+            min_score=config.get_float("STICKER_MIN_SCORE", 0.45),
+        )
+        self.sticker_sender = StickerSender(
+            self.send_sticker_by_id, dry_run=config.get_bool("STICKER_DRY_RUN", True)
+        )
+        self.sticker_auto_send = config.get_bool("STICKER_AUTO_SEND", False)
+        self.sticker_fetch_sets = config.get_bool("STICKER_FETCH_SETS", True)
 
         # ── 能力层：核心 Bot 只问"我现在有没有这个能力" ──
         self.caps = CapabilityManager(enabled=True)
@@ -669,7 +802,7 @@ class Bot:
     # ── Telegram 收发 ──────────────────────────────────────────────
     def tg_call(self, method: str, payload: dict | None = None, timeout: int = 60, retries: int = 3) -> dict:
         return api_request(
-            TG_API.format(token=self.token, method=method), payload, timeout=timeout, retries=retries
+            f"{self.api_base}/bot{self.token}/{method}", payload, timeout=timeout, retries=retries
         )
 
     def send_message(self, chat_id: int, text: str) -> None:
@@ -790,6 +923,22 @@ class Bot:
             return {"sent": [], "cancelled": True, "reason": "no_chat_id"}
         return self.conversation.proactive(self.proactive_chat_id, candidate=candidate)
 
+    # ── V3 观测钩子（薄封装，逻辑在 v3_commands，0 token）──────────
+    def _v3_on_user_message(self, event) -> None:
+        import v3_commands
+
+        v3_commands.on_user_message(self, event)
+
+    def _v3_on_state_changed(self, event) -> None:
+        import v3_commands
+
+        v3_commands.on_state_changed(self, event)
+
+    def _v3_on_bot_response(self, event) -> None:
+        import v3_commands
+
+        v3_commands.on_bot_response(self, event)
+
     # ── Phase 7：感知层（图片 / 语音 / 视频 / 文件 / 网页）─────────
     def _register_tool_bins(self, config: "Config") -> str:
         """把便携版二进制目录（TOOL_BIN_DIR）加进查找范围：ffmpeg / whisper / ollama。"""
@@ -822,7 +971,7 @@ class Bot:
         file_path = ((info.get("result") or {}).get("file_path") or "").strip()
         if not file_path:
             raise RuntimeError("Telegram 没有返回可下载的文件路径")
-        url = f"https://api.telegram.org/file/bot{self.token}/{file_path}"
+        url = f"{self.api_base}/file/bot{self.token}/{file_path}"
         with urllib.request.urlopen(url, timeout=90) as response:
             payload = response.read()
         self.media_dir.mkdir(parents=True, exist_ok=True)
@@ -917,11 +1066,71 @@ class Bot:
     def handle_sticker(self, chat_id: int, message: dict) -> None:
         sticker = message.get("sticker") or {}
         emoji = sticker.get("emoji") or ""
+        # ── Sticker S1：先收录（纯数据，0 token / 0 Vision）──
+        record = None
+        try:
+            record = StickerRecord.from_telegram(sticker, source="user")
+            saved, action = self.sticker_store.add(record)
+            record = saved
+            logging.info(
+                "[sticker] collected %s emoji=%s set=%s seen=%d",
+                action, saved.emoji or "-", saved.set_name or "-", saved.seen_count,
+            )
+            if self.sticker_fetch_sets and saved.set_name and not self.sticker_store.has_set(saved.set_name):
+                self._cache_sticker_set(saved.set_name)
+        except Exception as exc:  # noqa: BLE001 - 收录失败不能影响聊天
+            logging.warning("[sticker] 收录失败：%s", exc)
         summary = f"用户发来一个表情包（{emoji}）"
-        local = self.sticker_book.pick(emoji) if self.sticker_book.available() else None
+        # S1 默认不自动发贴纸（STICKER_AUTO_SEND=false）
+        local = None
+        if self.sticker_auto_send and self.sticker_book.available():
+            local = self.sticker_book.pick(emoji)
         if local is not None and local.ok:
             self.send_sticker(chat_id, local.data.get("path", ""))
         self.conversation.perceive(chat_id, source_type="sticker", summary=summary)
+
+    def _cache_sticker_set(self, set_name: str) -> None:
+        """已知 Sticker Set 通过 Bot API 取一次并缓存（失败不影响聊天）。"""
+        try:
+            info = self.tg_call("getStickerSet", {"name": set_name}, timeout=20, retries=1)
+            payload = info.get("result") or {}
+            self.sticker_store.cache_set(set_name, payload)
+            logging.info("[sticker] set 缓存成功：%s（%d 张）", set_name, len(payload.get("stickers") or []))
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("[sticker] getStickerSet 失败（忽略）：%s", str(exc)[:120])
+
+    def send_sticker_by_id(self, chat_id: int, file_id: str) -> None:
+        """按 file_id 发送贴纸（Telegram 原生 sendSticker）。"""
+        self.tg_call("sendSticker", {"chat_id": chat_id, "sticker": file_id}, timeout=30, retries=2)
+
+    def cmd_sticker(self, chat_id: int, rest: str = "") -> None:
+        """Sticker S1 观测：收录了什么、排序会给什么（dry_run，不发送）。"""
+        action = (rest or "").strip()
+        if action.startswith("try "):
+            intent_text = action[4:].strip() or "teasing"
+            decision = self.sticker_engine.decide(StickerIntent(
+                use=True, intent=intent_text, intensity=0.6, confidence=0.8
+            ))
+            lines = [
+                f"dry_run 决策（intent={intent_text}）：should_send={decision.should_send}",
+                f"得分={decision.score} 原因={decision.reason or '-'}",
+            ]
+            for item in decision.candidates:
+                lines.append(f"· {item['file_unique_id'][:16]} score={item['score']} ({item['reason']})")
+            self.send_message(chat_id, "\n".join(lines))
+            return
+        stats = self.sticker_engine.stats()
+        hist = self.sticker_history.stats()
+        lines = [
+            f"贴纸库：{stats['stickers']} 张 ｜ emoji 种类 {stats['index']['emoji_kinds']} ｜ 已缓存 set {stats['index']['sets']}",
+            f"模式：dry_run={stats['dry_run']}（不真的发送）｜ 自动发送={self.sticker_auto_send}",
+            f"使用记录：{hist['records']} 条（已发 {hist['sent']}）",
+        ]
+        recent = self.sticker_index.recent(3)
+        for item in recent:
+            lines.append(f"· {item.emoji or '-'} {item.file_unique_id[:16]} set={item.set_name or '-'} x{item.seen_count}")
+        lines.append("用法：/sticker try teasing —— 看 dry_run 会挑哪张（不会发送）")
+        self.send_message(chat_id, "\n".join(lines))
 
     def handle_url(self, chat_id: int, text: str, url: str) -> None:
         """用户发链接：本地读正文 → 交给角色回应。"""
@@ -1190,6 +1399,12 @@ class Bot:
         parts = text.split(maxsplit=1)
         command = parts[0].lower()
         rest = parts[1].strip() if len(parts) > 1 else ""
+        # V3 观察命令（只读或请求；未启用时会告知如何开启）
+        import v3_commands
+
+        if v3_commands.dispatch(self, chat_id, command, rest):
+            self.usage.record_local("rule", estimate_tokens(text), note=f"V3 命令 {command}")
+            return
         handlers = {
             "/remind": self.cmd_remind,
             "/reminders": self.cmd_todo,
@@ -1209,6 +1424,7 @@ class Bot:
             "/tools": self.cmd_tools,
             "/工具": self.cmd_tools,
             "/cap": self.cmd_caps,
+            "/sticker": self.cmd_sticker,
             "/能力": self.cmd_caps,
             "/vision": self.cmd_vision,
             "/视觉": self.cmd_vision,
@@ -1281,6 +1497,7 @@ class Bot:
         self.send_message(chat_id, "\n".join(lines))
 
     def cmd_vision(self, chat_id: int, _rest: str = "") -> None:
+        """（视觉体检；V3 项目的 V2 部分保持不变）"""
         """一键体检整条视觉链路，每一步的真实结果都发到 Telegram。"""
         from tools.perception import vision as vision_mod
 
@@ -1501,14 +1718,21 @@ class Bot:
             self.send_message(chat_id, "直接说要记的事，比如「周六晚上买牛奶」。")
             return
         result = parse_reminder(rest)
-        if not result or not result.get("when"):
+        # 命令一律不调模型：只有 config.env 显式打开 REMIND_LLM_PARSE 时，
+        # 才允许用便宜模型兜底解析时间。默认关闭 => /remind 是纯 Python、0 token。
+        llm_parse = self.config.get_bool("REMIND_LLM_PARSE", False)
+        if llm_parse and (not result or not result.get("when")):
             result = parse_reminder_with_llm(
                 rest, lambda prompt: self._ask_cheap(prompt), datetime.datetime.now()
             )
         if not result or not result.get("when"):
             content = (result or {}).get("content") or rest
             item_id = self.reminders.add({"chat_id": chat_id, "due": "", "content": content, "repeat": ""})
-            self.send_message(chat_id, f"记下了（{item_id}）：{content}\n没定时间，先放着。")
+            reply = f"记下了（{item_id}）：{content}\n没定时间，先放着。"
+            if not result and not llm_parse and _looks_like_time(rest):
+                reply += ("\n（这句我没解析出时间。要让它调用一次便宜模型来解析，"
+                          "把 config.env 的 REMIND_LLM_PARSE 改成 true）")
+            self.send_message(chat_id, reply)
             return
         when = result["when"]
         item_id = self.reminders.add(
@@ -1625,24 +1849,80 @@ class Bot:
             if os.name != "nt":
                 self.send_message(chat_id, "开机自启仅支持 Windows。")
                 return
-            vbs.parent.mkdir(parents=True, exist_ok=True)
-            inner = f'"{sys.executable}" "{BASE_DIR / "bot.py"}"'
-            vbs.write_text(
-                f'CreateObject("WScript.Shell").Run "{inner.replace(chr(34), chr(34) * 2)}", 0, False\n',
-                encoding="ascii",
-            )
-            self.send_message(chat_id, "开机自启开好了，以后一开机我就在。")
+            vbs = self._install_autostart()
+            removed = self._remove_legacy_autostart()
+            lines = ["开机自启已指向 V3（开机跑的就是启动器：替换旧进程 + 起 bot + 起调度器）。",
+                     f"文件：{vbs.name}"]
+            if removed:
+                lines.append("顺手清掉了旧条目：" + "、".join(removed))
+            self.send_message(chat_id, "\n".join(lines))
         elif action in ("off", "关", "0", "false"):
+            removed = []
             if vbs.exists():
                 vbs.unlink()
-                self.send_message(chat_id, "开机自启已关闭。")
-            else:
-                self.send_message(chat_id, "本来就没开。")
+                removed.append(vbs.name)
+            removed += self._remove_legacy_autostart()
+            self.send_message(chat_id, "开机自启已关闭。" if removed else "本来就没开。")
         else:
-            self.send_message(chat_id, "用法：/autostart on｜/autostart off")
+            self.send_message(chat_id, "\n".join(self._autostart_report()))
 
     def _autostart_path(self) -> Path:
-        return Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "xiyan_v2_bot.vbs"
+        return self._startup_dir() / AUTOSTART_NAME
+
+    def _install_autostart(self) -> Path:
+        """写好开机自启脚本（隐藏窗口运行启动器），返回文件路径。"""
+        vbs = self._autostart_path()
+        vbs.parent.mkdir(parents=True, exist_ok=True)
+        inner = self._autostart_command()
+        vbs.write_text(
+            f'CreateObject("WScript.Shell").Run "{inner.replace(chr(34), chr(34) * 2)}", 0, False\n',
+            encoding="ascii",
+        )
+        return vbs
+
+    def _startup_dir(self) -> Path:
+        return (Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows"
+                / "Start Menu" / "Programs" / "Startup")
+
+    def _autostart_command(self) -> str:
+        """开机跑启动器（它会替换旧实例、再起 bot 与调度器）。"""
+        launcher = BASE_DIR / "launch_v3.ps1"
+        if launcher.is_file():
+            return f'powershell -NoProfile -ExecutionPolicy Bypass -File "{launcher}"'
+        return f'"{sys.executable}" "{BASE_DIR / "bot.py"}"'
+
+    def _remove_legacy_autostart(self) -> list:
+        """清掉旧的自启条目（V2/旧项目留下的），保证开机只有一个入口。"""
+        removed = []
+        for name in LEGACY_AUTOSTART_NAMES:
+            path = self._startup_dir() / name
+            if path.exists():
+                try:
+                    path.unlink()
+                    removed.append(name)
+                except OSError as exc:  # noqa: BLE001
+                    logging.warning("[autostart] 删不掉旧条目 %s：%s", name, exc)
+        return removed
+
+    def _autostart_report(self) -> list:
+        vbs = self._autostart_path()
+        lines = ["开机自启：", "────────────",
+                 f"本机程序：V3（{VERSION_LABEL}）",
+                 f"目录：{self._startup_dir()}"]
+        if vbs.is_file():
+            try:
+                first = vbs.read_text(encoding="ascii", errors="replace").strip().splitlines()
+                lines.append(f"{AUTOSTART_NAME}：已开启")
+                if first:
+                    lines.append(f"  开机执行：{first[0][:160]}")
+            except OSError:
+                lines.append(f"{AUTOSTART_NAME}：已开启")
+        else:
+            lines.append(f"{AUTOSTART_NAME}：未开启（/autostart on 打开）")
+        for name in LEGACY_AUTOSTART_NAMES:
+            if (self._startup_dir() / name).exists():
+                lines.append(f"⚠ 发现旧条目 {name}（/autostart on 会自动清掉）")
+        return lines
 
     # ── 提醒到点（模板直发，不调用模型）──────────────────────────
     def send_reminder(self, reminder: dict) -> None:
@@ -1662,6 +1942,9 @@ class Bot:
         """
         deadline = time.time() + max(0.0, float(timeout))
         attempt = 0
+        # 记住"本来配好的代理"，这样无论当前处在哪种模式，都能切回去
+        proxy_value = (getattr(self, "proxy_value", "") or os.environ.get("HTTPS_PROXY") or "").strip()
+        proxy_active = bool(proxy_value)
         while True:
             attempt += 1
             try:
@@ -1678,6 +1961,10 @@ class Bot:
 
     def poll(self) -> None:
         offset = 0
+        # 记住"本来配好的代理"，这样无论当前处在哪种模式，都能切回去
+        proxy_value = (getattr(self, "proxy_value", "") or os.environ.get("HTTPS_PROXY") or "").strip()
+        proxy_active = bool(proxy_value)
+        failures = 0
         logging.info(
             "夕颜 V2 Phase1 启动：backend=%s models=%s", self.config.get("BACKEND", "deepseek"), self.client.models
         )
@@ -1689,6 +1976,9 @@ class Bot:
                     timeout=70,
                     retries=2,
                 )
+                if failures:
+                    logging.info("[proxy] 连接已恢复（当前方式：%s）", "代理 " + proxy_value if proxy_active else "直连")
+                    failures = 0
                 for update in updates.get("result", []):
                     update_id = update.get("update_id")
                     if update_id is not None:
@@ -1701,6 +1991,7 @@ class Bot:
                 raise
             except Exception as exc:  # noqa: BLE001
                 logging.error("poll error: %s", exc)
+                failures += 1
                 time.sleep(3)
 
 
@@ -1718,15 +2009,31 @@ def main() -> int:
     # 第一时间留下代码指纹（早于任何可能失败的步骤）
     log_build()
     config = Config(Path(args.config))
+    # 回退版（与"还能正常收发消息"时一致）：只在 config.env 显式配置时才设代理，
+    # 没配就完全不动环境变量，交给系统代理（含 TUN / 重定向）自己处理。
     proxy = config.get("HTTPS_PROXY")
     if proxy:
-        os.environ.setdefault("HTTPS_PROXY", proxy)
-        os.environ.setdefault("HTTP_PROXY", proxy)
+        os.environ["HTTPS_PROXY"] = proxy
+        os.environ["HTTP_PROXY"] = proxy
+    logging.info("[startup] 代理：%s", proxy or "未显式配置（使用系统代理 / TUN）")
     if not config.get("TELEGRAM_BOT_TOKEN"):
         logging.error("缺少 TELEGRAM_BOT_TOKEN（config.env 或环境变量）")
         return 1
     bot = Bot(config)
-    log_build(handlers=True)
+    bot.proxy_value = proxy or ""
+    bot.build_info = log_build(handlers=True)
+    # V3 自证：让启动器和 bot.log 都能一眼看出"这次跑的是不是带 V3 的代码"
+    if bot.v3_service is not None:
+        from v3_commands import V3_COMMANDS
+
+        logging.info(
+            "[build] v3=on mode=%s（基础=%s 覆盖=%s） data=%s commands=%s",
+            bot.v3_service.runtime.mode(), bot.v3_service.runtime.base_mode(),
+            bot.v3_service.runtime.runtime_override() or "-",
+            bot.v3_service.runtime.data_dir, ",".join(V3_COMMANDS),
+        )
+    else:
+        logging.info("[build] v3=off（V3_ENABLED=false，V3 不注册任何订阅、不写任何 V3 文件）")
     # 唯一实例保护：绝不允许悄悄跑起第二个进程
     lock = SingleInstance(DATA_DIR / "bot.lock")
     ok, existing = lock.acquire()

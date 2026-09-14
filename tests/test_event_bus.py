@@ -71,6 +71,9 @@ class EventBusTest(unittest.TestCase):
                 "UserMessageReceived", "TopicUpdated", "MemoryCreated", "MemoryRecalled",
                 "EmotionChanged", "RelationshipChanged", "ConversationEnded",
                 "ProactiveTriggered", "UserReturned",
+                "BotResponseSent",
+                "v3:thought_created", "v3:interest_updated",
+                "v3:experience_committed", "v3:cycle_completed",
             },
         )
 

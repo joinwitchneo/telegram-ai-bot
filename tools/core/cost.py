@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from core.atomic_io import atomic_write_text
+
 import datetime
 import json
 import logging
@@ -52,7 +54,7 @@ class CostTracker:
             with self._lock:
                 payload = json.dumps({"days": self.days}, ensure_ascii=False, indent=1)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(payload, encoding="utf-8")
+            atomic_write_text(self.path, payload, encoding="utf-8")
         except OSError as exc:
             logging.warning("写入工具成本失败：%s", exc)
 

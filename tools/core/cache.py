@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.atomic_io import atomic_write_text
+
 import json
 import logging
 import threading
@@ -84,6 +86,6 @@ class TTLCache:
             with self._lock:
                 payload = json.dumps({"items": self._items}, ensure_ascii=False)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(payload, encoding="utf-8")
+            atomic_write_text(self.path, payload, encoding="utf-8")
         except OSError as exc:
             logging.warning("写入工具缓存失败：%s", exc)

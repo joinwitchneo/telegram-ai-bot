@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from core.atomic_io import atomic_write_text
+
 import datetime
 import json
 import logging
@@ -29,7 +31,7 @@ class MemoStore:
         with self._lock:
             snapshot = json.dumps(self.data, ensure_ascii=False, indent=2)
         try:
-            self.path.write_text(snapshot, encoding="utf-8")
+            atomic_write_text(self.path, snapshot, encoding="utf-8")
         except OSError as exc:
             logging.warning("could not save memos: %s", exc)
 
