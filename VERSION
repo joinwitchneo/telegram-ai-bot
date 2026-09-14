@@ -1,3 +1,7 @@
 V3.0-mvp
 基线：telegram-bot-v2（复制为起点，data/ 不继承）
-范围：自主生命系统 MVP —— Phase 0–5（Thought / Interest / Motivation / Reward / Continuity / Scheduler）
+范围：自主生命系统 Phase 0–6
+  Phase 0–5：Thought / Interest / Motivation / Reward / Continuity / Scheduler
+  Phase 6：Checkpoint / Cognition(Provider 接口) / Decision / Action 层 / Outcome 反馈
+           / Trace 事件日志 / Autonomous Wake（自主唤醒，醒来 ≠ 发消息）
+默认档位 observe：只思考与记录，绝不主动发消息（dry_run=模拟发送，live=允许真实发送）
